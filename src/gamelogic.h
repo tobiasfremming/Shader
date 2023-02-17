@@ -1,5 +1,7 @@
 #pragma once
 
+#include <GLFW/glfw3.h>
+
 #include <utilities/window.hpp>
 #include "sceneGraph.hpp"
 
