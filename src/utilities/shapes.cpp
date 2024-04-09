@@ -187,10 +187,10 @@ Mesh generateSphere(float sphereRadius, int slices, int layers) {
             indices.emplace_back(i + 5);
 
             for (int j = 0; j < 6; j++) {
-                glm::vec3 vertex = vertices.at(i+j);
+                glm::vec3 vertex = vertices.at(i+j) / sphereRadius;
                 uvs.emplace_back(
-                    0.5 + (glm::atan(vertex.z, vertex.y)/(2.0*M_PI)),
-                    0.5 - (glm::asin(vertex.y)/M_PI)
+                    0.5 + (glm::atan(vertex.z, -vertex.x)/(2.0*M_PI)),
+                    0.5 + (glm::asin(vertex.y)/M_PI)
                 );
             }
 
