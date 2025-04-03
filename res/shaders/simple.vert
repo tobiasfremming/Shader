@@ -14,4 +14,5 @@ void main()
     normal_out = normal_in;
     textureCoordinates_out = textureCoordinates_in;
     gl_Position = MVP * vec4(position, 1.0f);
+    // Hei
 }
