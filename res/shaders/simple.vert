@@ -1,18 +1,15 @@
 #version 430 core
 
-in layout(location = 0) vec3 position;
-in layout(location = 1) vec3 normal_in;
-in layout(location = 2) vec2 textureCoordinates_in;
+out vec2 uv;
 
-uniform layout(location = 3) mat4 MVP;
+const vec2 pos[4] = vec2[](
+    vec2(-1.0, -1.0),
+    vec2( 1.0, -1.0),
+    vec2(-1.0,  1.0),
+    vec2( 1.0,  1.0)
+);
 
-out layout(location = 0) vec3 normal_out;
-out layout(location = 1) vec2 textureCoordinates_out;
-
-void main()
-{
-    normal_out = normal_in;
-    textureCoordinates_out = textureCoordinates_in;
-    gl_Position = MVP * vec4(position, 1.0f);
-    // Hei
+void main() {
+    gl_Position = vec4(pos[gl_VertexID], 0.0, 1.0);
+    uv = (pos[gl_VertexID] + 1.0) * 0.5; // for debug if you need
 }
