@@ -27,7 +27,7 @@ struct Boid {
     glm::vec3 velocity;
 };
 
-constexpr int NUM_BOIDS = 5;
+constexpr int NUM_BOIDS = 10; // Number of boids in the simulation
 std::vector<Boid> boids(NUM_BOIDS);
 
 #include <timestamps.h>
@@ -35,6 +35,7 @@ std::vector<Boid> boids(NUM_BOIDS);
 unsigned int currentKeyFrame = 0;
 unsigned int previousKeyFrame = 0;
 
+// UNIFORMS
 GLint u_time = -1;
 GLint u_resolution = -1;
 
@@ -58,7 +59,6 @@ bool mouseLeftReleased  = false;
 bool mouseRightPressed  = false;
 bool mouseRightReleased = false;
 
-bool still = true;
 
 // Modify if you want the music to start further on in the track. Measured in seconds.
 const float debug_startTime = 0;
@@ -69,6 +69,131 @@ double mouseSensitivity = 1.0;
 double lastMouseX = windowWidth / 2;
 double lastMouseY = windowHeight / 2;
 
+
+// Constants defining boids behavior
+
+const float ALIGNMENT_RADIUS       = 0.7f;
+const float COHESION_RADIUS        = 0.8f;
+const float SEPARATION_RADIUS      = 0.5f;
+const float PREDATOR_FEAR_RADIUS   = 0.5f;
+const float SEARCH_RADIUS          = 0.8f;
+
+// Weights for boid behaviors
+const float PREDATOR_CHASE_WEIGHT  = 1.0f;
+const float ALIGNMENT_WEIGHT  = 0.4f;
+const float COHESION_WEIGHT   = 0.4f;
+const float SEPARATION_WEIGHT = 1.0f;
+const float FEAR_WEIGHT       = 4.0f;
+
+// Function to update velocities of boids
+void updateBoidVelocities(std::vector<Boid>& boids) {
+    std::vector<glm::vec3> newVelocities(NUM_BOIDS);
+
+    for (int i = 0; i < NUM_BOIDS; i++) {
+        glm::vec3 pos = boids[i].position;
+        glm::vec3 vel = boids[i].velocity;
+
+        if (i == 0) { // Predator (Dolphin) chases nearest prey
+            float minDist = FLT_MAX;
+            glm::vec3 target;
+
+            for (int j = 2; j < NUM_BOIDS; j++) {
+                float dist = glm::length(boids[j].position - pos);
+                if (dist < minDist) {
+                    minDist = dist;
+                    target = boids[j].position;
+                }
+            }
+
+            glm::vec3 chaseVec = glm::normalize(target - pos);
+            glm::vec3 acceleration = chaseVec * PREDATOR_CHASE_WEIGHT;
+            newVelocities[i] = glm::normalize(vel + 0.04f * acceleration);
+
+        } else if (i == 1) { // Dolphin previous position, keep unchanged
+            newVelocities[i] = vel;
+
+        } else { // Fish behaviors
+            glm::vec3 alignment(0.0f);
+            glm::vec3 cohesion(0.0f);
+            glm::vec3 separation(0.0f);
+            glm::vec3 fear(0.0f);
+
+            int neighborCount = 0;
+
+            // Check fear from predator
+            glm::vec3 predatorPos = boids[0].position;
+            float distPredator = glm::length(predatorPos - pos);
+
+            if (distPredator < PREDATOR_FEAR_RADIUS && distPredator > 0.001f) {
+                fear = glm::normalize(pos - predatorPos) * (FEAR_WEIGHT / (distPredator * distPredator));
+            }
+
+            // Iterate through other fish
+            for (int j = 2; j < NUM_BOIDS; j++) {
+                if (i == j) continue;
+
+                glm::vec3 otherPos = boids[j].position;
+                glm::vec3 otherVel = boids[j].velocity;
+                float dist = glm::length(otherPos - pos);
+
+                if (dist < SEARCH_RADIUS && dist > 0.001f) {
+                    if (dist < ALIGNMENT_RADIUS)
+                        alignment += otherVel;
+                    if (dist < COHESION_RADIUS)
+                        cohesion += otherPos;
+                    if (dist < SEPARATION_RADIUS)
+                        separation += glm::normalize(pos - otherPos) / dist;
+
+                    neighborCount++;
+                }
+            }
+
+            if (neighborCount > 0) {
+                alignment /= neighborCount;
+                cohesion = (cohesion / float(neighborCount)) - pos;
+                separation /= neighborCount;
+            }
+
+            glm::vec3 acceleration =
+                alignment * ALIGNMENT_WEIGHT +
+                cohesion * COHESION_WEIGHT +
+                separation * SEPARATION_WEIGHT +
+                fear;
+
+            newVelocities[i] = glm::normalize(vel + acceleration);
+        }
+    }
+
+    // Update velocities
+    for (int i = 0; i < NUM_BOIDS; i++) {
+        boids[i].velocity = newVelocities[i];
+    }
+}
+
+// Function to update boid positions
+void updateBoidPositions(std::vector<Boid>& boids, float timeStep, glm::vec3 bounds) {
+    for (auto& boid : boids) {
+        boid.position += boid.velocity * timeStep;
+
+        //Wrap positions
+        for (int axis = 0; axis < 3; ++axis) {
+            if (boid.position[axis] < -bounds[axis]) boid.position[axis] += 2.0f * bounds[axis];
+            else if (boid.position[axis] > bounds[axis]) boid.position[axis] -= 2.0f * bounds[axis];
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
 void mouseCallback(GLFWwindow* window, double x, double y) {
     int windowWidth, windowHeight;
     glfwGetWindowSize(window, &windowWidth, &windowHeight);
@@ -78,83 +203,6 @@ void mouseCallback(GLFWwindow* window, double x, double y) {
     double deltaY = y - lastMouseY;
 
     glfwSetCursorPos(window, windowWidth / 2, windowHeight / 2);
-}
-
-
-
-void updateBoids(float dt) {
-    const float SEARCH_RADIUS = 0.8f;
-    const float SEPARATION_RADIUS = 0.5f;
-    const float PREDATOR_FEAR_RADIUS = 0.5f;
-    const float PREDATOR_CHASE_WEIGHT = 1.0f;
-
-    std::vector<Boid> newBoids = boids;
-
-    for (int i = 0; i < NUM_BOIDS; ++i) {
-        glm::vec3 pos = boids[i].position;
-        glm::vec3 vel = boids[i].velocity;
-
-        if (i == 0) {
-            // Predator logic
-            float minDist = 1e10;
-            glm::vec3 target;
-            for (int j = 1; j < NUM_BOIDS; ++j) {
-                float d = glm::length(boids[j].position - pos);
-                if (d < minDist) {
-                    minDist = d;
-                    target = boids[j].position;
-                }
-            }
-            glm::vec3 acceleration = glm::normalize(target - pos) * PREDATOR_CHASE_WEIGHT;
-            vel = glm::normalize(vel + 0.04f * acceleration);
-        } else {
-            // Prey logic
-            glm::vec3 sumVel(0.0f), sumPos(0.0f), separation(0.0f), fear(0.0f);
-            int count = 0;
-
-            glm::vec3 predatorPos = boids[0].position;
-            float distPred = glm::length(predatorPos - pos);
-            if (distPred < PREDATOR_FEAR_RADIUS && distPred > 0.001f) {
-                fear = glm::normalize(pos - predatorPos) * (4.0f * PREDATOR_FEAR_RADIUS) / (distPred * distPred);
-            }
-
-            for (int j = 1; j < NUM_BOIDS; ++j) {
-                if (j == i) continue;
-                float d = glm::length(boids[j].position - pos);
-                if (d > 0.001f && d < SEARCH_RADIUS) {
-                    sumVel += boids[j].velocity;
-                    sumPos += boids[j].position;
-                    float factor = 1.0f - glm::smoothstep(0.0f, SEPARATION_RADIUS, d);
-                    separation += (pos - boids[j].position) * factor / d;
-                    count++;
-                }
-            }
-
-            if (count > 0) {
-                glm::vec3 alignment = sumVel / float(count);
-                glm::vec3 cohesion = (sumPos / float(count)) - pos;
-                separation /= float(count);
-                glm::vec3 acceleration = alignment * 0.4f + cohesion * 0.3f + separation * 0.8f + fear;
-
-                vel = glm::normalize(vel + acceleration) * (2.5f + glm::length(fear));
-            }
-        }
-
-        // Update position
-        glm::vec3 newPos = pos + vel * dt;
-
-        // Wrap position
-        glm::vec3 bounds = glm::vec3(4.0f, 2.0f, 2.0f);
-        for (int k = 0; k < 3; ++k) {
-            if (newPos[k] < -bounds[k]) newPos[k] += 2.0f * bounds[k];
-            else if (newPos[k] > bounds[k]) newPos[k] -= 2.0f * bounds[k];
-        }
-
-        newBoids[i].position = newPos;
-        newBoids[i].velocity = vel;
-    }
-
-    boids = newBoids;
 }
 
 
@@ -205,13 +253,8 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
 
     glm::vec2 resolution = glm::vec2(windowWidth, windowHeight); 
     //glUniform2fv(1,1, glm::value_ptr(resolution));
-
-
+ 
     
-    
-     
-
-
     rootNode = createSceneNode();
 }
 
@@ -256,8 +299,47 @@ void updateFrame(GLFWwindow* window) {
 
     double timeDelta = getTimeDeltaSeconds();
 
-    updateBoids(static_cast<float>(timeDelta));
+    // TODO call funtoin to calculate the new positions of the boids
+    float timeStep = 0.005f;
+    glm::vec3 bounds = glm::vec3(4.f, 2.f, 2.f);
+    updateBoidVelocities(boids);
+    updateBoidPositions(boids, timeStep, bounds);
 
+    std::vector<glm::vec3> positions, velocities;
+    for (const auto& b : boids) {
+        positions.push_back(b.position);
+        velocities.push_back(b.velocity);
+    }
+
+    glUniform3fv(posLoc, NUM_BOIDS, glm::value_ptr(positions[0]));
+    glUniform3fv(velLoc, NUM_BOIDS, glm::value_ptr(velocities[0]));
+    //print out the posiitons and velocities of the boids
+    //std::cout << "Boid positions: " << std::endl;
+    // for (int i = 0; i < NUM_BOIDS; i++) {
+    //     std::cout << "Boid " << i << ": " << boids[i].position.x << ", " << boids[i].position.y << ", " << boids[i].position.z << std::endl;
+    // }
+
+
+
+    // for (int i = 0; i < NUM_BOIDS; i++) {
+    //     std::string posUniform = "boidPositions[" + std::to_string(i) + "]";
+    //     std::string velUniform = "boidVelocities[" + std::to_string(i) + "]";
+
+    //     GLint posLoc = glGetUniformLocation(shader->get(), posUniform.c_str());
+    //     GLint velLoc = glGetUniformLocation(shader->get(), velUniform.c_str());
+
+    //     if (posLoc != -1) {
+    //         glUniform3f(posLoc, boids[i].position.x, boids[i].position.y, boids[i].position.z);
+    //     } else {
+    //         std::cerr << "Uniform not found: " << posUniform << std::endl;
+    //     }
+
+    //     if (velLoc != -1) {
+    //         glUniform3f(velLoc, boids[i].velocity.x, boids[i].velocity.y, boids[i].velocity.z);
+    //     } else {
+    //         std::cerr << "Uniform not found: " << velUniform << std::endl;
+    //     }
+    // }
 
     if(!hasStarted) {
         if (mouseLeftPressed) {
@@ -335,14 +417,6 @@ void renderFrame(GLFWwindow* window) {
     glUseProgram(shader->get()); // Make sure shader is active
     glUniform2fv(u_resolution, 1, glm::value_ptr(resolution));
 
-    std::vector<glm::vec3> positions, velocities;
-    for (const auto& b : boids) {
-        positions.push_back(b.position);
-        velocities.push_back(b.velocity);
-    }
-
-    glUniform3fv(posLoc, NUM_BOIDS, glm::value_ptr(positions[0]));
-    glUniform3fv(velLoc, NUM_BOIDS, glm::value_ptr(velocities[0]));
     renderNode(rootNode);
 
     // Make the screen into two polygons forming a rectangle and draw it!

@@ -1,5 +1,5 @@
 #version 430 core
-#define NUM_BOIDS 5
+#define NUM_BOIDS 10
 #define KINEMATICS_INDEX 20
 #define NUMI 10
 #define NUMF 10.0
@@ -849,7 +849,7 @@ float fishBound(vec3 p) {
     boundingRadius = 0.5;
     for (i = 1; i < NUM_BOIDS; i++) { // start from 2?
         currentIndex = i;
-        vec3 pos = boidVelocities[i];
+        vec3 pos = boidPositions[i];
         float sphereSDF = length(p - pos) - boundingRadius;
         
         if (sphereSDF < 0.01) {
