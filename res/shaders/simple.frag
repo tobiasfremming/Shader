@@ -964,7 +964,10 @@ float GodRays(  in vec2 ndc, in vec2 uv) {
 
 
 
-
+float drawParticle(vec2 uv, vec2 center, float radius) {
+    float d = length(uv - center);
+    return exp(-pow(d / radius, 2.0) * 8.0); // soft glow falloff
+}
 
 vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     
@@ -1010,9 +1013,43 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     // Blend the godrays (scattered light) with the scene color.
     // Adjust the blend factor if necessary.
     background = mix(background, lightColor, (godrays + 0.05)/1.05);
+
+    vec3 particleColor1 = vec3(0.3, 0.45, 0.35); // deeper green-brown
+    vec3 particleColor2 = vec3(0.6, 0.3, 0.2);   // slightly lighter variation
+
+    float particleOverlay = 0.0;
+    vec3 particles = vec3(0.0);
+
+    int NUM_PARTICLES = 40;
+    for (int i = 0; i < NUM_PARTICLES; ++i) {
+        float id = float(i);
+
+        // Particle base position and offset
+        float speed = 0.03 + 0.015 * sin(id);
+        vec2 basePos = vec2(
+            fract(sin(id * 73.1) * 43758.5453 + iTime * speed),
+            fract(sin(id * 91.3) * 12345.678 + iTime * speed * 0.5)
+        );
+        basePos.x += 0.02 * sin(iTime * 2.0 + id); // sine wave drift
+
+        // Particle size and alpha depth blending factor
+        float size = 0.004+ 0.005 * fract(sin(id * 13.37) * 123.45);
+        float alpha = 0.3 + 0.7 * fract(sin(id * 45.12) * 789.23); // blend factor (for "depth")
+
+        // Blend between two colors
+        vec3 color = mix(particleColor1, particleColor2, fract(sin(id * 11.7) * 897.2));
+
+        // Particle glow
+        float glow = drawParticle(gl_FragCoord.xy / iResolution.xy, basePos, size)*0.5;
+        particles += alpha * glow * color;
+    }
+
+
+    vec3 finalColor = background.rgb + particles;
+    finalColor = clamp(finalColor, 0.0, 1.0);
     
     //return vec4(0.4, 0.6, 0.7, 1.);
-    return vec4(background,1.);
+    return vec4(finalColor,1.);
 
 
 }
@@ -1069,13 +1106,14 @@ void main()
     vec3 rd = normalize(forward + uv.x * right + uv.y * up);
 
     vec4 result = rayMarch(ro, rd, uv, gl_FragCoord.xy/iResolution.xy);
+
+
     
     fragColor = vec4(result);
     
+    //fragColor = vec4(result);
     
-    
- 
-    
+
 }
 
 
