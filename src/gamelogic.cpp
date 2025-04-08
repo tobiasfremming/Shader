@@ -126,115 +126,6 @@ std::string loadShaderSource(const std::string& filePath) {
 }
 
 
-// Function to update velocities of boids
-void updateBoidVelocities(std::vector<GPUBoid>& boids) {
-    std::vector<glm::vec3> newVelocities(NUM_BOIDS);
-
-    for (int i = 0; i < NUM_BOIDS; i++) {
-        glm::vec3 pos = boids[i].position;
-        glm::vec3 vel = boids[i].velocity;
-
-        if (i == 0) { // Predator (Dolphin) chases nearest prey
-            float minDist = FLT_MAX;
-            glm::vec3 target;
-
-            for (int j = 2; j < NUM_BOIDS; j++) {
-                float dist = glm::length(boids[j].position - pos);
-                if (dist < minDist) {
-                    minDist = dist;
-                    target = boids[j].position;
-                }
-            }
-
-            glm::vec3 chaseVec = glm::normalize(target - pos);
-            glm::vec3 acceleration = chaseVec * PREDATOR_CHASE_WEIGHT;
-            newVelocities[i] = glm::normalize(vel + 0.04f * acceleration);
-
-        } else if (i == 1) { // Dolphin previous position, keep unchanged
-            newVelocities[i] = vel;
-
-        } else { // Fish behaviors
-            glm::vec3 alignment(0.0f);
-            glm::vec3 cohesion(0.0f);
-            glm::vec3 separation(0.0f);
-            glm::vec3 fear(0.0f);
-
-            int neighborCount = 0;
-
-            // Check fear from predator
-            glm::vec3 predatorPos = boids[0].position;
-            float distPredator = glm::length(predatorPos - pos);
-
-            if (distPredator < PREDATOR_FEAR_RADIUS && distPredator > 0.001f) {
-                fear = glm::normalize(pos - predatorPos) * (FEAR_WEIGHT / (distPredator * distPredator));
-            }
-
-            // Iterate through other fish
-            for (int j = 2; j < NUM_BOIDS; j++) {
-                if (i == j) continue;
-
-                glm::vec3 otherPos = boids[j].position;
-                glm::vec3 otherVel = boids[j].velocity;
-                float dist = glm::length(otherPos - pos);
-
-                if (dist < SEARCH_RADIUS && dist > 0.001f) {
-                    if (dist < ALIGNMENT_RADIUS)
-                        alignment += otherVel;
-                    if (dist < COHESION_RADIUS)
-                        cohesion += otherPos;
-                    if (dist < SEPARATION_RADIUS)
-                        separation += glm::normalize(pos - otherPos) / dist;
-
-                    neighborCount++;
-                }
-            }
-
-            if (neighborCount > 0) {
-                alignment /= neighborCount;
-                cohesion = (cohesion / float(neighborCount)) - pos;
-                separation /= neighborCount;
-            }
-
-            glm::vec3 acceleration =
-                alignment * ALIGNMENT_WEIGHT +
-                cohesion * COHESION_WEIGHT +
-                separation * SEPARATION_WEIGHT +
-                fear;
-
-            newVelocities[i] = glm::normalize(vel + acceleration);
-        }
-    }
-
-    // Update velocities
-    for (int i = 0; i < NUM_BOIDS; i++) {
-        boids[i].velocity = newVelocities[i];
-    }
-}
-
-// Function to update boid positions
-void updateBoidPositions(std::vector<GPUBoid>& boids, float timeStep, glm::vec3 bounds) {
-    for (auto& boid : boids) {
-        boid.position += boid.velocity * timeStep;
-
-        //Wrap positions
-        for (int axis = 0; axis < 3; ++axis) {
-            if (boid.position[axis] < -bounds[axis]) boid.position[axis] += 2.0f * bounds[axis];
-            else if (boid.position[axis] > bounds[axis]) boid.position[axis] -= 2.0f * bounds[axis];
-        }
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
 void mouseCallback(GLFWwindow* window, double x, double y) {
     int windowWidth, windowHeight;
     glfwGetWindowSize(window, &windowWidth, &windowHeight);
@@ -414,8 +305,6 @@ void updateFrame(GLFWwindow* window) {
     // TODO call funtoin to calculate the new positions of the boids
     float timeStep = 0.005f;
     glm::vec3 bounds = glm::vec3(4.f, 2.f, 2.f);
-    updateBoidVelocities(boids);
-    updateBoidPositions(boids, timeStep, bounds);
 
     std::vector<glm::vec3> positions, velocities;
     for (const auto& b : boids) {
@@ -423,60 +312,6 @@ void updateFrame(GLFWwindow* window) {
         velocities.push_back(b.velocity);
     }
 
-    //glUniform3fv(posLoc, NUM_BOIDS, glm::value_ptr(positions[0]));
-    //glUniform3fv(velLoc, NUM_BOIDS, glm::value_ptr(velocities[0]));
-
-    // glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPosition);
-    // glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, &boids[0].position, GL_DYNAMIC_DRAW);
-
-    // // Upload velocities
-    // glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
-    // glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, &boids[0].velocity, GL_DYNAMIC_DRAW);
-    
-    
-
-
-    // TODO: IS THIS THE CORRECT ONE OR SHOULD I USE THE ONE ABOVE?
-    // std::vector<glm::vec3> positions;
-    // std::vector<glm::vec3> velocities;
-    // for (const auto& b : boids) {
-    //     positions.push_back(b.position);
-    //     velocities.push_back(b.velocity);
-    // }
-    
-
-    // for (int i = 0; i < NUM_BOIDS; ++i) {
-    //     positions[i] = boids[i].position;
-    //     velocities[i] = boids[i].velocity;
-    // }
-    // Upload positions
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPosition);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(glm::vec3) * NUM_BOIDS, positions.data());
-
-    // Upload velocities
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(glm::vec3) * NUM_BOIDS, velocities.data());
-
-
-    // for (int i = 0; i < NUM_BOIDS; i++) {
-    //     std::string posUniform = "boidPositions[" + std::to_string(i) + "]";
-    //     std::string velUniform = "boidVelocities[" + std::to_string(i) + "]";
-
-    //     GLint posLoc = glGetUniformLocation(shader->get(), posUniform.c_str());
-    //     GLint velLoc = glGetUniformLocation(shader->get(), velUniform.c_str());
-
-    //     if (posLoc != -1) {
-    //         glUniform3f(posLoc, boids[i].position.x, boids[i].position.y, boids[i].position.z);
-    //     } else {
-    //         std::cerr << "Uniform not found: " << posUniform << std::endl;
-    //     }
-
-    //     if (velLoc != -1) {
-    //         glUniform3f(velLoc, boids[i].velocity.x, boids[i].velocity.y, boids[i].velocity.z);
-    //     } else {
-    //         std::cerr << "Uniform not found: " << velUniform << std::endl;
-    //     }
-    // }
 
     if(!hasStarted) {
         if (mouseLeftPressed) {
@@ -545,35 +380,6 @@ void updateFrame(GLFWwindow* window) {
     //glUniform3fv(3,1, glm::value_ptr(cameraPosition));
 }
 
-void renderFrame2(GLFWwindow* window) {
-    int windowWidth, windowHeight;
-    glfwGetWindowSize(window, &windowWidth, &windowHeight);
-    glViewport(0, 0, windowWidth, windowHeight);
-
-    glm::vec2 resolution(windowWidth, windowHeight);
-
-    // --- COMPUTE PASS ---
-    glUseProgram(computeProgram);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // full Boid array
-    glDispatchCompute(NUM_BOIDS, 1, 1);
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT); // be safe
-
-    // --- RENDER PASS ---
-    shader->activate();
-    glUseProgram(shader->get()); // Make sure shader is active
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
-
-    // Set SSBOs used by fragment shader
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // vec3 positions[]
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity); // vec3 velocities[]
-
-    renderNode(rootNode); // likely empty; doesn’t hurt to call it
-
-    // Fullscreen quad
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-}
 
 
 // void renderFrame(GLFWwindow* window) {
@@ -637,7 +443,7 @@ void renderFrame(GLFWwindow* window) {
     glDispatchCompute(NUM_BOIDS, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); // ensure writes are visible
 
-    // 👇 Insert this block RIGHT AFTER compute dispatch:
+    // Insert this block RIGHT AFTER compute dispatch:
     {
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
         GPUBoid* ptr = (GPUBoid*)glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
@@ -663,14 +469,14 @@ void renderFrame(GLFWwindow* window) {
     // Continue with rendering
     shader->activate();
 
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
     glUseProgram(shader->get());
 
     glUniform2f(u_resolution, static_cast<float>(windowWidth), static_cast<float>(windowHeight));
 
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // fragment shader reads these
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity);
+    // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // fragment shader reads these
+    // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    GPUBoid* ptr = (GPUBoid*)glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
 
     renderNode(rootNode);
 
