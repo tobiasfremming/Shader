@@ -200,8 +200,8 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
 
 
     for (int i = 0; i < NUM_BOIDS; ++i) {
-        gpuBoids[i].position = glm::vec4(boids[i].position, 0.0f);
-        gpuBoids[i].velocity = glm::vec4(boids[i].velocity, 0.0f);
+        gpuBoids[i].position = glm::vec3(boids[i].position);
+        gpuBoids[i].velocity = glm::vec3(boids[i].velocity);
     }
 
     glGenBuffers(1, &ssbo);
