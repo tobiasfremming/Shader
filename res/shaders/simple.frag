@@ -1,5 +1,5 @@
 #version 430 core
-#define NUM_BOIDS 10
+#define NUM_BOIDS 20
 #define KINEMATICS_INDEX 20
 #define NUMI 10
 #define NUMF 10.0
@@ -9,15 +9,7 @@
 
 uniform float iTime;
 uniform vec2 iResolution;
-// uniform vec3 boidPositions[NUM_BOIDS];
-// uniform vec3 boidVelocities[NUM_BOIDS];
-// layout(std430, binding = 0) buffer BoidBuffer {
-//     vec3 positions[];
-// };
 
-// layout(std430, binding = 1) buffer VelocityBuffer {
-//     vec3 velocities[];
-// };
 struct Boid {
     vec3 position;
     vec3 velocity;
@@ -223,8 +215,7 @@ float sdFish_based(vec3 p) {
     return body;
 }
 
-float sdFish(vec3 p){
-    float scale = 0.5;
+float sdFish(vec3 p, float scale){
     float fishSDF = scale * sdFish_based(p / scale);
     float sphereSDF = length(p) - scale * 0.3;
     // Use max to clip the fish SDF: if the fish SDF is lower than the sphere's distance,
@@ -272,6 +263,7 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
     for (int k = 0; k < 2; k++) {
         for (int j = 0; j < 2; j++) {
             for (int i = 0; i < 2; i++) {
+                
                 // Compute neighbor offset based on p's side relative to id
                 vec3 offset = vec3(float(i), float(j), float(k));
                 vec3 rid = id + offset * o;
@@ -284,7 +276,7 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
                 // Compute the local coordinate within this candidate cell with jitter
                 vec3 r = p - s * (rid + cellJitter);
                 // Evaluate the fish SDF (and align it with the fish's orientation)
-                float fishSDF = sdFish(rotationFromDirection(r, vel));
+                float fishSDF = sdFish(rotationFromDirection(r, vel), 0.5);
                 // Keep the minimum distance over all candidate cells
                 d = min(d, fishSDF);
             }
@@ -293,7 +285,7 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
     
     return d;
 }
-
+// NOT IN USE
 // p: the point in space to evaluate
 // s: the repetition period (cell size)
 float domainRepeatSDF(vec3 p, float s) {
@@ -308,13 +300,14 @@ float domainRepeatSDF(vec3 p, float s) {
     for (int k = 0; k < 2; k++) {
         for (int j = 0; j < 2; j++) {
             for (int i = 0; i < 2; i++) {
+                float scale = (k + j + i )* 0.1;
                 // Compute the candidate cell ID. The expression (vec3(i, j, k)*o) selects the
                 // neighboring cell along each dimension in the proper direction.
                 vec3 rid = id + vec3(float(i), float(j), float(k)) * o;
                 // Compute the local coordinate within that cell
                 vec3 r = p - s * rid;
                 // Evaluate the base SDF at the repeated coordinate and take the minimum distance
-                d = min(d, sdFish(r));
+                d = min(d, sdFish(r, scale));
             }
         }
     }
@@ -836,10 +829,8 @@ float fishBound(vec3 p) {
     float d = 1e10;
     // Adjust this radius so it tightly bounds your fish.
     float boundingRadius = 2.4; // make this smaller
-    
-    int i = 0;
-    
-    vec3 pos = boids[i].position;
+        
+    vec3 pos = boids[0].position;
     // Compute SDF for a sphere centered at pos.
     float sphereSDF = length(p - pos) - boundingRadius;
     //if (sphereSDF > 0.0) { continue;}
@@ -860,7 +851,7 @@ float fishBound(vec3 p) {
     } 
 
     boundingRadius = 0.5;
-    for (i = 1; i < NUM_BOIDS; i++) { // start from 2?
+    for (int i = 2; i < NUM_BOIDS; i++) { // start from 2?
         currentIndex = i;
         vec3 pos = boids[i].position;
         float sphereSDF = length(p - pos) - boundingRadius;
@@ -871,7 +862,7 @@ float fishBound(vec3 p) {
             rotationFromDirection(localP, vel);
             
             float fishSDF = limitedDomainRepeatSDF(localP, 0.5, vec3(1.5), vel);
-            //float fishSDF = sdFish(localP);
+            //float fishSDF = sdFish(localP, 0.5);
      
             d = min(d, fishSDF);
             
@@ -922,7 +913,7 @@ float map(vec3 p){
     
     return fishBound(p);
    
-    //return sdFish(p);
+
 
     
 }
@@ -1085,15 +1076,6 @@ void main()
     
  
     
-}
-void main2() {
-    vec2 uv = gl_FragCoord.xy / iResolution.xy;
-    fragColor = vec4(uv, 0.0, 1.0);
-}
-
-
-void main_debug() {
-    fragColor = vec4(boids[0].velocity, 1.0); // Use the first boid's position
 }
 
 

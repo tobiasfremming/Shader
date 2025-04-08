@@ -1,5 +1,4 @@
 #version 430
-
 layout(local_size_x = 1) in;
 
 struct Boid {
@@ -10,6 +9,8 @@ struct Boid {
 layout(std430, binding = 0) buffer BoidBuffer {
     Boid boids[];
 };
+
+const int NUM_BOIDS = 20;
 
 const float ALIGNMENT_RADIUS = 0.7;
 const float COHESION_RADIUS = 0.9;
@@ -24,88 +25,109 @@ const float SEPARATION_WEIGHT = 0.8;
 
 const float TIME_STEP = 0.01;
 
-const int NUM_BOIDS = 10;
-
 vec3 wrapPosition(vec3 p, vec3 bounds) {
     return p - 2.0 * bounds * floor((p + bounds) / (2.0 * bounds));
 }
 
+vec3 computeAlignment(uint id, vec3 pos) {
+    vec3 alignment = vec3(0.0);
+    int count = 0;
+    for (int i = 2; i < NUM_BOIDS; ++i) {
+        if (i == id) continue;
+        float d = distance(boids[i].position, pos);
+        if (d < ALIGNMENT_RADIUS) {
+            alignment += boids[i].velocity;
+            count++;
+        }
+    }
+    return count > 0 ? alignment / float(count) : vec3(0.0);
+}
+
+vec3 computeCohesion(uint id, vec3 pos) {
+    vec3 center = vec3(0.0);
+    int count = 0;
+    for (int i = 2; i < NUM_BOIDS; ++i) {
+        if (i == id) continue;
+        float d = distance(boids[i].position, pos);
+        if (d < COHESION_RADIUS) {
+            center += boids[i].position;
+            count++;
+        }
+    }
+    return count > 0 ? (center / float(count)) - pos : vec3(0.0);
+}
+
+vec3 computeSeparation(uint id, vec3 pos) {
+    vec3 separation = vec3(0.0);
+    int count = 0;
+    for (int i = 2; i < NUM_BOIDS; ++i) {
+        if (i == id) continue;
+        float d = distance(boids[i].position, pos);
+        if (d < SEPARATION_RADIUS && d > 0.001) {
+            float factor = 1.0 - smoothstep(0.0, SEPARATION_RADIUS, d);
+            separation += (pos - boids[i].position) * factor / d;
+            count++;
+        }
+    }
+    return count > 0 ? separation / float(count) : vec3(0.0);
+}
+
+vec4 computeFear(vec3 pos) {
+    vec3 predatorPos = boids[0].position;
+    float d = distance(predatorPos, pos);
+    if (d < PREDATOR_FEAR_RADIUS && d > 0.001) {
+        float w = FEAR_WEIGHT * (PREDATOR_FEAR_RADIUS / (d * d + 0.01));
+        return vec4(normalize(pos - predatorPos), w);
+    }
+    return vec4(0.0);
+}
+
+vec3 computePredatorChase(vec3 pos) {
+    float minDist = 1e20;
+    vec3 target = pos;
+    for (int i = 2; i < NUM_BOIDS; ++i) {
+        float d = distance(boids[i].position, pos);
+        if (d < minDist) {
+            minDist = d;
+            target = boids[i].position;
+        }
+    }
+    return normalize(target - pos);
+}
+
+vec3 safeNormalize(vec3 v, vec3 fallback) {
+    return length(v) > 0.0001 ? normalize(v) : fallback;
+}
+
 void main() {
     uint id = gl_GlobalInvocationID.x;
-
     if (id >= NUM_BOIDS) return;
 
     vec3 pos = boids[id].position;
     vec3 vel = boids[id].velocity;
 
-    vec3 bounds = vec3(4.0, 2.0, 2.0);
-
+    vec3 bounds = vec3(6.0, 2.5, 2.5);
     vec3 acceleration = vec3(0.0);
 
     if (id == 0) {
-        float minDist = 1e20;
-        vec3 target = pos;
-
-        for (int i = 2; i < NUM_BOIDS; ++i) {
-            vec3 otherPos = boids[i].position;
-            float d = distance(pos, otherPos);
-            if (d < minDist) {
-                minDist = d;
-                target = otherPos;
-            }
-        }
-
-        vec3 chase = normalize(target - pos);
+        boids[1].velocity = vel;
+        vec3 chase = computePredatorChase(pos);
         acceleration = PREDATOR_CHASE_WEIGHT * chase;
         vel = normalize(vel + acceleration * 0.15) * 5.0;
         vel *= 0.5;
+    
+    } else if (id > 1) {
+        vec3 align = computeAlignment(id, pos);
+        vec3 cohere = computeCohesion(id, pos);
+        vec3 separate = computeSeparation(id, pos);
+        vec4 fear = computeFear(pos);
 
-    } else if (id == 1) {
-        vel = vel;
-    } else {
-        vec3 alignment = vec3(0.0);
-        vec3 cohesion = vec3(0.0);
-        vec3 separation = vec3(0.0);
-        vec3 fear = vec3(0.0);
-        float fearWeight = 0.0;
+        acceleration = align * ALIGNMENT_WEIGHT
+                     + cohere * COHESION_WEIGHT
+                     + separate * SEPARATION_WEIGHT
+                     + fear.xyz * fear.w * fear.w;
 
-        int count = 0;
-
-        for (int i = 2; i < NUM_BOIDS; ++i) {
-            if (i == id) continue;
-
-            vec3 otherPos = boids[i].position;
-            vec3 otherVel = boids[i].velocity;
-
-            float d = distance(pos, otherPos);
-
-            if (d < ALIGNMENT_RADIUS) alignment += otherVel;
-            if (d < COHESION_RADIUS) cohesion += otherPos;
-            if (d < SEPARATION_RADIUS && d > 0.001)
-                separation += (pos - otherPos) * (1.0 - smoothstep(0.0, SEPARATION_RADIUS, d)) / d;
-
-            if (d < 0.8) count++;
-        }
-
-        if (count > 0) {
-            alignment /= count;
-            cohesion = cohesion / count - pos;
-            separation /= count;
-        }
-
-        vec3 predatorPos = boids[0].position;
-        float d = distance(predatorPos, pos);
-        if (d < PREDATOR_FEAR_RADIUS && d > 0.001) {
-            fear = normalize(pos - predatorPos);
-            fearWeight = FEAR_WEIGHT * (PREDATOR_FEAR_RADIUS / (d * d));
-        }
-
-        acceleration = alignment * ALIGNMENT_WEIGHT
-                     + cohesion * COHESION_WEIGHT
-                     + separation * SEPARATION_WEIGHT
-                     + fear * fearWeight;
-
-        vel = normalize(vel + acceleration) * max(1.0, 2.0 * fearWeight);
+        vel = safeNormalize(vel + acceleration, vel) * max(1. , fear.w);
         vel *= 0.7;
     }
 
