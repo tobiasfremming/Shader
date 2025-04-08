@@ -47,6 +47,8 @@ unsigned int previousKeyFrame = 0;
 // TEXTURES
 GLuint computeProgram;   // Compute shader program
 GLuint ssbo;  // global SSBO handle
+GLuint ssboPosition;
+GLuint ssboVelocity;
 
 unsigned int framebuffer;
 unsigned int textureColorBuffer;
@@ -278,9 +280,9 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
     GLuint shaderProgram = shader->get();
     u_time       = glGetUniformLocation(shaderProgram, "iTime");
     u_resolution = glGetUniformLocation(shaderProgram, "iResolution");
-    posLoc       = glGetUniformLocation(shaderProgram, "boidPositions");
-    velLoc       = glGetUniformLocation(shaderProgram, "boidVelocities");
-    u_texture    = glGetUniformLocation(shaderProgram, "iChannel0");
+    //posLoc       = glGetUniformLocation(shaderProgram, "boidPositions");
+    //velLoc       = glGetUniformLocation(shaderProgram, "boidVelocities");
+    //u_texture    = glGetUniformLocation(shaderProgram, "iChannel0");
 
     // mak eshader_compute .comp shader
 
@@ -315,6 +317,15 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
     glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(GPUBoid) * NUM_BOIDS, gpuBoids.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+    glGenBuffers(1, &ssboPosition);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPosition);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, nullptr, GL_DYNAMIC_DRAW); // or with data if ready
+
+    glGenBuffers(1, &ssboVelocity);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, nullptr, GL_DYNAMIC_DRAW);
+
 
 
     // GLuint ssbo;
@@ -412,14 +423,39 @@ void updateFrame(GLFWwindow* window) {
         velocities.push_back(b.velocity);
     }
 
-    glUniform3fv(posLoc, NUM_BOIDS, glm::value_ptr(positions[0]));
-    glUniform3fv(velLoc, NUM_BOIDS, glm::value_ptr(velocities[0]));
-    //print out the posiitons and velocities of the boids
-    //std::cout << "Boid positions: " << std::endl;
-    // for (int i = 0; i < NUM_BOIDS; i++) {
-    //     std::cout << "Boid " << i << ": " << boids[i].position.x << ", " << boids[i].position.y << ", " << boids[i].position.z << std::endl;
-    // }
+    //glUniform3fv(posLoc, NUM_BOIDS, glm::value_ptr(positions[0]));
+    //glUniform3fv(velLoc, NUM_BOIDS, glm::value_ptr(velocities[0]));
 
+    // glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPosition);
+    // glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, &boids[0].position, GL_DYNAMIC_DRAW);
+
+    // // Upload velocities
+    // glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
+    // glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, &boids[0].velocity, GL_DYNAMIC_DRAW);
+    
+    
+
+
+    // TODO: IS THIS THE CORRECT ONE OR SHOULD I USE THE ONE ABOVE?
+    // std::vector<glm::vec3> positions;
+    // std::vector<glm::vec3> velocities;
+    // for (const auto& b : boids) {
+    //     positions.push_back(b.position);
+    //     velocities.push_back(b.velocity);
+    // }
+    
+
+    // for (int i = 0; i < NUM_BOIDS; ++i) {
+    //     positions[i] = boids[i].position;
+    //     velocities[i] = boids[i].velocity;
+    // }
+    // Upload positions
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPosition);
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(glm::vec3) * NUM_BOIDS, positions.data());
+
+    // Upload velocities
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(glm::vec3) * NUM_BOIDS, velocities.data());
 
 
     // for (int i = 0; i < NUM_BOIDS; i++) {
@@ -509,47 +545,137 @@ void updateFrame(GLFWwindow* window) {
     //glUniform3fv(3,1, glm::value_ptr(cameraPosition));
 }
 
-void renderFrame(GLFWwindow* window) {
+void renderFrame2(GLFWwindow* window) {
     int windowWidth, windowHeight;
     glfwGetWindowSize(window, &windowWidth, &windowHeight);
     glViewport(0, 0, windowWidth, windowHeight);
 
     glm::vec2 resolution(windowWidth, windowHeight);
 
-    // glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    // shader_compute->activate();
-    // //glUseProgram(shader_compute->get());
-
-    // glDrawArrays(GL_POINTS, 0, NUM_BOIDS); // TODO: what should be the arguments here
-    
-    // glBindBuffer(GL_FRAMEBUFFER, 0);
-    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
- 
-
-    
+    // --- COMPUTE PASS ---
     glUseProgram(computeProgram);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // Rebind just in case
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // full Boid array
     glDispatchCompute(NUM_BOIDS, 1, 1);
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT); // be safe
 
-
-
-
+    // --- RENDER PASS ---
     shader->activate();
+    glUseProgram(shader->get()); // Make sure shader is active
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
 
-    glUseProgram(shader->get()); // Make sure shader is active
-    glUniform2fv(u_resolution, 1, glm::value_ptr(resolution));
-    glUniform1i(u_texture, 0); // Set the texture unit to 0
+    // Set SSBOs used by fragment shader
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // vec3 positions[]
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity); // vec3 velocities[]
 
+    renderNode(rootNode); // likely empty; doesn’t hurt to call it
+
+    // Fullscreen quad
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+
+// void renderFrame(GLFWwindow* window) {
+//     int windowWidth, windowHeight;
+//     glfwGetWindowSize(window, &windowWidth, &windowHeight);
+//     glViewport(0, 0, windowWidth, windowHeight);
+
+//     glm::vec2 resolution(windowWidth, windowHeight);
+
+//     // glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+//     // shader_compute->activate();
+//     // //glUseProgram(shader_compute->get());
+
+//     // glDrawArrays(GL_POINTS, 0, NUM_BOIDS); // TODO: what should be the arguments here
+    
+//     // glBindBuffer(GL_FRAMEBUFFER, 0);
+//     // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+ 
+
+    
+//     glUseProgram(computeProgram);
+//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // Rebind just in case
+//     glDispatchCompute(NUM_BOIDS, 1, 1);
+//     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+    
+
+
+
+
+//     shader->activate();
+
+//     glActiveTexture(GL_TEXTURE0);
+//     glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+
+//     glUseProgram(shader->get()); // Make sure shader is active
+//     //glUniform2fv(u_resolution, 1, glm::value_ptr(resolution));
+//     //glUniform1i(u_texture, 0); // Set the texture unit to 0
+
+//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // positions
+//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity); // velocities
+
+
+//     renderNode(rootNode);
+
+//     // Make the screen into two polygons forming a rectangle and draw it!
+//     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+
+// }
+
+void renderFrame(GLFWwindow* window) {
+    int windowWidth, windowHeight;
+    glfwGetWindowSize(window, &windowWidth, &windowHeight);
+    glViewport(0, 0, windowWidth, windowHeight);
+
+    // Dispatch the compute shader (updates `ssbo`)
+    glUseProgram(computeProgram);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // SSBO with Boid structs
+    glDispatchCompute(NUM_BOIDS, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); // ensure writes are visible
+
+    // 👇 Insert this block RIGHT AFTER compute dispatch:
+    {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+        GPUBoid* ptr = (GPUBoid*)glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+
+        if (ptr) {
+            std::vector<glm::vec3> posList, velList;
+            for (int i = 0; i < NUM_BOIDS; ++i) {
+                posList.push_back(ptr[i].position);
+                velList.push_back(ptr[i].velocity);
+            }
+
+            glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+            // Upload to the separate buffers used in fragment shader
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPosition);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, posList.data(), GL_DYNAMIC_DRAW);
+
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, velList.data(), GL_DYNAMIC_DRAW);
+        }
+    }
+
+    // Continue with rendering
+    shader->activate();
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+    glUseProgram(shader->get());
+
+    glUniform2f(u_resolution, static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // fragment shader reads these
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity);
 
     renderNode(rootNode);
 
-    // Make the screen into two polygons forming a rectangle and draw it!
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); // Fullscreen quad
 }
+
+
+

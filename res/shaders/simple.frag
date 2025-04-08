@@ -9,16 +9,27 @@
 
 uniform float iTime;
 uniform vec2 iResolution;
-uniform vec3 boidPositions[NUM_BOIDS];
-uniform vec3 boidVelocities[NUM_BOIDS];
-uniform sampler2D iChannel0;
+// uniform vec3 boidPositions[NUM_BOIDS];
+// uniform vec3 boidVelocities[NUM_BOIDS];
+// layout(std430, binding = 0) buffer BoidBuffer {
+//     vec3 positions[];
+// };
+
+// layout(std430, binding = 1) buffer VelocityBuffer {
+//     vec3 velocities[];
+// };
+struct Boid {
+    vec3 position;
+    vec3 velocity;
+};
+
+layout(std430, binding = 0) buffer BoidBuffer {
+    Boid boids[];
+};
+
+
 
 out vec4 fragColor;
-
-
-
-
-
 
 
 
@@ -35,6 +46,7 @@ vec3 repeatIndex;
 float dot2( in vec2 v ) { return dot(v,v); }
 float dot2( in vec3 v ) { return dot(v,v); }
 float ndot( in vec2 a, in vec2 b ) { return a.x*b.x - a.y*b.y; }
+
 
 float rand(vec2 co) { return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758.5453); }
 
@@ -827,15 +839,15 @@ float fishBound(vec3 p) {
     
     int i = 0;
     
-    vec3 pos = boidPositions[i];
+    vec3 pos = boids[i].position;
     // Compute SDF for a sphere centered at pos.
     float sphereSDF = length(p - pos) - boundingRadius;
     //if (sphereSDF > 0.0) { continue;}
 
     if (sphereSDF < 0.01) {
         // p is inside the sphere, so we now do the more expensive evaluation.
-        vec3 vel = boidVelocities[0];
-        vec3 prevVel = boidVelocities[1];
+        vec3 vel = boids[0].velocity;
+        vec3 prevVel = boids[1].velocity;
         vec3 localP = p - pos;  // translate into boid's space
         //localP = rotationFromDirectionDolphin(localP, vel);
         float dolphin_scale = 0.2;
@@ -850,11 +862,11 @@ float fishBound(vec3 p) {
     boundingRadius = 0.5;
     for (i = 1; i < NUM_BOIDS; i++) { // start from 2?
         currentIndex = i;
-        vec3 pos = boidPositions[i];
+        vec3 pos = boids[i].position;
         float sphereSDF = length(p - pos) - boundingRadius;
         
         if (sphereSDF < 0.01) {
-            vec3 vel = boidVelocities[i];
+            vec3 vel = boids[i].velocity;
             vec3 localP = p - pos;  // translate into boid's space
             rotationFromDirection(localP, vel);
             
@@ -909,6 +921,9 @@ float map(vec3 p){
     
     
     return fishBound(p);
+   
+    //return sdFish(p);
+
     
 }
 
@@ -1071,9 +1086,15 @@ void main()
  
     
 }
+void main2() {
+    vec2 uv = gl_FragCoord.xy / iResolution.xy;
+    fragColor = vec4(uv, 0.0, 1.0);
+}
 
 
-
+void main_debug() {
+    fragColor = vec4(boids[0].velocity, 1.0); // Use the first boid's position
+}
 
 
 
