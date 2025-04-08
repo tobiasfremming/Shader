@@ -104,6 +104,11 @@ namespace Gloom
             link();
         }
 
+        void loadShaderSource(std::string const &compFilename){
+            attach(compFilename);
+            link();
+        }
+
         /* Convenience function to get a uniforms ID from a string
            containing its name */
         GLint getUniformFromName(std::string const &uniformName) {

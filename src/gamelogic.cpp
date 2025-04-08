@@ -27,17 +27,35 @@ struct Boid {
     glm::vec3 velocity;
 };
 
+
+
 constexpr int NUM_BOIDS = 10; // Number of boids in the simulation
-std::vector<Boid> boids(NUM_BOIDS);
+//std::vector<Boid> boids(NUM_BOIDS);
+
+struct GPUBoid {
+    glm::vec3 position;
+    glm::vec3 velocity;
+};
+std::vector<GPUBoid> boids(NUM_BOIDS);
+
 
 #include <timestamps.h>
 
 unsigned int currentKeyFrame = 0;
 unsigned int previousKeyFrame = 0;
 
+// TEXTURES
+GLuint computeProgram;   // Compute shader program
+GLuint ssbo;  // global SSBO handle
+
+unsigned int framebuffer;
+unsigned int textureColorBuffer;
+
+
 // UNIFORMS
 GLint u_time = -1;
 GLint u_resolution = -1;
+GLint u_texture = -1;
 
 GLint posLoc = -1;
 GLint velLoc = -1;
@@ -45,6 +63,7 @@ GLint velLoc = -1;
 // These are heap allocated, because they should not be initialised at the start of the program
 sf::SoundBuffer* buffer;
 Gloom::Shader* shader;
+Gloom::Shader* shader_compute;
 sf::Sound* sound;
 
 CommandLineOptions options;
@@ -85,8 +104,28 @@ const float COHESION_WEIGHT   = 0.4f;
 const float SEPARATION_WEIGHT = 1.0f;
 const float FEAR_WEIGHT       = 4.0f;
 
+
+
+#include <fstream>
+#include <sstream>
+#include <string>
+
+std::string loadShaderSource(const std::string& filePath) {
+    std::ifstream file(filePath);
+    
+    if (!file.is_open()) {
+        std::cerr << "Failed to open shader file: " << filePath << std::endl;
+        return "";
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf(); // Read file contents into the stringstream
+    return buffer.str();    // Return as a string
+}
+
+
 // Function to update velocities of boids
-void updateBoidVelocities(std::vector<Boid>& boids) {
+void updateBoidVelocities(std::vector<GPUBoid>& boids) {
     std::vector<glm::vec3> newVelocities(NUM_BOIDS);
 
     for (int i = 0; i < NUM_BOIDS; i++) {
@@ -171,7 +210,7 @@ void updateBoidVelocities(std::vector<Boid>& boids) {
 }
 
 // Function to update boid positions
-void updateBoidPositions(std::vector<Boid>& boids, float timeStep, glm::vec3 bounds) {
+void updateBoidPositions(std::vector<GPUBoid>& boids, float timeStep, glm::vec3 bounds) {
     for (auto& boid : boids) {
         boid.position += boid.velocity * timeStep;
 
@@ -241,6 +280,68 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
     u_resolution = glGetUniformLocation(shaderProgram, "iResolution");
     posLoc       = glGetUniformLocation(shaderProgram, "boidPositions");
     velLoc       = glGetUniformLocation(shaderProgram, "boidVelocities");
+    u_texture    = glGetUniformLocation(shaderProgram, "iChannel0");
+
+    // mak eshader_compute .comp shader
+
+    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
+    std::string computeCode = loadShaderSource("../../res/shaders/boids.comp");
+    const char* codePtr = computeCode.c_str();
+    glShaderSource(computeShader, 1, &codePtr, nullptr);
+    glCompileShader(computeShader);
+
+    // Check for compile errors
+    GLint success;
+    glGetShaderiv(computeShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetShaderInfoLog(computeShader, 512, nullptr, infoLog);
+        std::cerr << "ERROR: Compute shader compilation failed:\n" << infoLog << std::endl;
+    }
+
+    computeProgram = glCreateProgram();
+    glAttachShader(computeProgram, computeShader);
+    glLinkProgram(computeProgram);
+
+    std::vector<GPUBoid> gpuBoids(NUM_BOIDS);
+
+
+    for (int i = 0; i < NUM_BOIDS; ++i) {
+        gpuBoids[i].position = glm::vec4(boids[i].position, 0.0f);
+        gpuBoids[i].velocity = glm::vec4(boids[i].velocity, 0.0f);
+    }
+
+    glGenBuffers(1, &ssbo);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(GPUBoid) * NUM_BOIDS, gpuBoids.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+
+    // GLuint ssbo;
+    // glGenBuffers(1, &ssbo);
+    // glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    // glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_BOIDS * sizeof(Boid), boids.data(), GL_DYNAMIC_DRAW);
+    // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+
+
+    // shader_compute = new Gloom::Shader();
+
+    
+    
+    
+    // glGenFramebuffers(1, &framebuffer);
+    // glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+    
+    // glGenTextures(1, &textureColorBuffer);  
+    // glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+    // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, NUM_BOIDS, 2, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);   
+    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorBuffer, 0);
+
+
 
 
     unsigned int emptyVAO;
@@ -414,8 +515,36 @@ void renderFrame(GLFWwindow* window) {
     glViewport(0, 0, windowWidth, windowHeight);
 
     glm::vec2 resolution(windowWidth, windowHeight);
+
+    // glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    // shader_compute->activate();
+    // //glUseProgram(shader_compute->get());
+
+    // glDrawArrays(GL_POINTS, 0, NUM_BOIDS); // TODO: what should be the arguments here
+    
+    // glBindBuffer(GL_FRAMEBUFFER, 0);
+    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+ 
+
+    
+    glUseProgram(computeProgram);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // Rebind just in case
+    glDispatchCompute(NUM_BOIDS, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+
+
+
+    shader->activate();
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+
     glUseProgram(shader->get()); // Make sure shader is active
     glUniform2fv(u_resolution, 1, glm::value_ptr(resolution));
+    glUniform1i(u_texture, 0); // Set the texture unit to 0
+
 
     renderNode(rootNode);
 
