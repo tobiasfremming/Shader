@@ -27,17 +27,37 @@ struct Boid {
     glm::vec3 velocity;
 };
 
-constexpr int NUM_BOIDS = 10; // Number of boids in the simulation
-std::vector<Boid> boids(NUM_BOIDS);
+
+
+constexpr int NUM_BOIDS = 27; // Number of boids in the simulation
+//std::vector<Boid> boids(NUM_BOIDS);
+
+struct GPUBoid {
+    glm::vec3 position;
+    glm::vec3 velocity;
+};
+std::vector<GPUBoid> boids(NUM_BOIDS);
+
 
 #include <timestamps.h>
 
 unsigned int currentKeyFrame = 0;
 unsigned int previousKeyFrame = 0;
 
+// TEXTURES
+GLuint computeProgram;   // Compute shader program
+GLuint ssbo;  // global SSBO handle
+GLuint ssboPosition;
+GLuint ssboVelocity;
+
+unsigned int framebuffer;
+unsigned int textureColorBuffer;
+
+
 // UNIFORMS
 GLint u_time = -1;
 GLint u_resolution = -1;
+GLint u_texture = -1;
 
 GLint posLoc = -1;
 GLint velLoc = -1;
@@ -45,6 +65,7 @@ GLint velLoc = -1;
 // These are heap allocated, because they should not be initialised at the start of the program
 sf::SoundBuffer* buffer;
 Gloom::Shader* shader;
+Gloom::Shader* shader_compute;
 sf::Sound* sound;
 
 CommandLineOptions options;
@@ -85,113 +106,24 @@ const float COHESION_WEIGHT   = 0.4f;
 const float SEPARATION_WEIGHT = 1.0f;
 const float FEAR_WEIGHT       = 4.0f;
 
-// Function to update velocities of boids
-void updateBoidVelocities(std::vector<Boid>& boids) {
-    std::vector<glm::vec3> newVelocities(NUM_BOIDS);
 
-    for (int i = 0; i < NUM_BOIDS; i++) {
-        glm::vec3 pos = boids[i].position;
-        glm::vec3 vel = boids[i].velocity;
 
-        if (i == 0) { // Predator (Dolphin) chases nearest prey
-            float minDist = FLT_MAX;
-            glm::vec3 target;
+#include <fstream>
+#include <sstream>
+#include <string>
 
-            for (int j = 2; j < NUM_BOIDS; j++) {
-                float dist = glm::length(boids[j].position - pos);
-                if (dist < minDist) {
-                    minDist = dist;
-                    target = boids[j].position;
-                }
-            }
-
-            glm::vec3 chaseVec = glm::normalize(target - pos);
-            glm::vec3 acceleration = chaseVec * PREDATOR_CHASE_WEIGHT;
-            newVelocities[i] = glm::normalize(vel + 0.04f * acceleration);
-
-        } else if (i == 1) { // Dolphin previous position, keep unchanged
-            newVelocities[i] = vel;
-
-        } else { // Fish behaviors
-            glm::vec3 alignment(0.0f);
-            glm::vec3 cohesion(0.0f);
-            glm::vec3 separation(0.0f);
-            glm::vec3 fear(0.0f);
-
-            int neighborCount = 0;
-
-            // Check fear from predator
-            glm::vec3 predatorPos = boids[0].position;
-            float distPredator = glm::length(predatorPos - pos);
-
-            if (distPredator < PREDATOR_FEAR_RADIUS && distPredator > 0.001f) {
-                fear = glm::normalize(pos - predatorPos) * (FEAR_WEIGHT / (distPredator * distPredator));
-            }
-
-            // Iterate through other fish
-            for (int j = 2; j < NUM_BOIDS; j++) {
-                if (i == j) continue;
-
-                glm::vec3 otherPos = boids[j].position;
-                glm::vec3 otherVel = boids[j].velocity;
-                float dist = glm::length(otherPos - pos);
-
-                if (dist < SEARCH_RADIUS && dist > 0.001f) {
-                    if (dist < ALIGNMENT_RADIUS)
-                        alignment += otherVel;
-                    if (dist < COHESION_RADIUS)
-                        cohesion += otherPos;
-                    if (dist < SEPARATION_RADIUS)
-                        separation += glm::normalize(pos - otherPos) / dist;
-
-                    neighborCount++;
-                }
-            }
-
-            if (neighborCount > 0) {
-                alignment /= neighborCount;
-                cohesion = (cohesion / float(neighborCount)) - pos;
-                separation /= neighborCount;
-            }
-
-            glm::vec3 acceleration =
-                alignment * ALIGNMENT_WEIGHT +
-                cohesion * COHESION_WEIGHT +
-                separation * SEPARATION_WEIGHT +
-                fear;
-
-            newVelocities[i] = glm::normalize(vel + acceleration);
-        }
+std::string loadShaderSource(const std::string& filePath) {
+    std::ifstream file(filePath);
+    
+    if (!file.is_open()) {
+        std::cerr << "Failed to open shader file: " << filePath << std::endl;
+        return "";
     }
 
-    // Update velocities
-    for (int i = 0; i < NUM_BOIDS; i++) {
-        boids[i].velocity = newVelocities[i];
-    }
+    std::stringstream buffer;
+    buffer << file.rdbuf(); // Read file contents into the stringstream
+    return buffer.str();    // Return as a string
 }
-
-// Function to update boid positions
-void updateBoidPositions(std::vector<Boid>& boids, float timeStep, glm::vec3 bounds) {
-    for (auto& boid : boids) {
-        boid.position += boid.velocity * timeStep;
-
-        //Wrap positions
-        for (int axis = 0; axis < 3; ++axis) {
-            if (boid.position[axis] < -bounds[axis]) boid.position[axis] += 2.0f * bounds[axis];
-            else if (boid.position[axis] > bounds[axis]) boid.position[axis] -= 2.0f * bounds[axis];
-        }
-    }
-}
-
-
-
-
-
-
-
-
-
-
 
 
 void mouseCallback(GLFWwindow* window, double x, double y) {
@@ -239,8 +171,79 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
     GLuint shaderProgram = shader->get();
     u_time       = glGetUniformLocation(shaderProgram, "iTime");
     u_resolution = glGetUniformLocation(shaderProgram, "iResolution");
-    posLoc       = glGetUniformLocation(shaderProgram, "boidPositions");
-    velLoc       = glGetUniformLocation(shaderProgram, "boidVelocities");
+    //posLoc       = glGetUniformLocation(shaderProgram, "boidPositions");
+    //velLoc       = glGetUniformLocation(shaderProgram, "boidVelocities");
+    //u_texture    = glGetUniformLocation(shaderProgram, "iChannel0");
+
+    // mak eshader_compute .comp shader
+
+    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
+    std::string computeCode = loadShaderSource("../../res/shaders/boids.comp");
+    const char* codePtr = computeCode.c_str();
+    glShaderSource(computeShader, 1, &codePtr, nullptr);
+    glCompileShader(computeShader);
+
+    // Check for compile errors
+    GLint success;
+    glGetShaderiv(computeShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetShaderInfoLog(computeShader, 512, nullptr, infoLog);
+        std::cerr << "ERROR: Compute shader compilation failed:\n" << infoLog << std::endl;
+    }
+
+    computeProgram = glCreateProgram();
+    glAttachShader(computeProgram, computeShader);
+    glLinkProgram(computeProgram);
+
+    std::vector<GPUBoid> gpuBoids(NUM_BOIDS);
+
+
+    for (int i = 0; i < NUM_BOIDS; ++i) {
+        gpuBoids[i].position = glm::vec3(boids[i].position);
+        gpuBoids[i].velocity = glm::vec3(boids[i].velocity);
+    }
+
+    glGenBuffers(1, &ssbo);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(GPUBoid) * NUM_BOIDS, gpuBoids.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+    glGenBuffers(1, &ssboPosition);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPosition);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, nullptr, GL_DYNAMIC_DRAW); // or with data if ready
+
+    glGenBuffers(1, &ssboVelocity);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, nullptr, GL_DYNAMIC_DRAW);
+
+
+
+    // GLuint ssbo;
+    // glGenBuffers(1, &ssbo);
+    // glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    // glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_BOIDS * sizeof(Boid), boids.data(), GL_DYNAMIC_DRAW);
+    // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+
+
+    // shader_compute = new Gloom::Shader();
+
+    
+    
+    
+    // glGenFramebuffers(1, &framebuffer);
+    // glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+    
+    // glGenTextures(1, &textureColorBuffer);  
+    // glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+    // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, NUM_BOIDS, 2, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);   
+    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorBuffer, 0);
+
+
 
 
     unsigned int emptyVAO;
@@ -302,8 +305,6 @@ void updateFrame(GLFWwindow* window) {
     // TODO call funtoin to calculate the new positions of the boids
     float timeStep = 0.005f;
     glm::vec3 bounds = glm::vec3(4.f, 2.f, 2.f);
-    updateBoidVelocities(boids);
-    updateBoidPositions(boids, timeStep, bounds);
 
     std::vector<glm::vec3> positions, velocities;
     for (const auto& b : boids) {
@@ -311,35 +312,6 @@ void updateFrame(GLFWwindow* window) {
         velocities.push_back(b.velocity);
     }
 
-    glUniform3fv(posLoc, NUM_BOIDS, glm::value_ptr(positions[0]));
-    glUniform3fv(velLoc, NUM_BOIDS, glm::value_ptr(velocities[0]));
-    //print out the posiitons and velocities of the boids
-    //std::cout << "Boid positions: " << std::endl;
-    // for (int i = 0; i < NUM_BOIDS; i++) {
-    //     std::cout << "Boid " << i << ": " << boids[i].position.x << ", " << boids[i].position.y << ", " << boids[i].position.z << std::endl;
-    // }
-
-
-
-    // for (int i = 0; i < NUM_BOIDS; i++) {
-    //     std::string posUniform = "boidPositions[" + std::to_string(i) + "]";
-    //     std::string velUniform = "boidVelocities[" + std::to_string(i) + "]";
-
-    //     GLint posLoc = glGetUniformLocation(shader->get(), posUniform.c_str());
-    //     GLint velLoc = glGetUniformLocation(shader->get(), velUniform.c_str());
-
-    //     if (posLoc != -1) {
-    //         glUniform3f(posLoc, boids[i].position.x, boids[i].position.y, boids[i].position.z);
-    //     } else {
-    //         std::cerr << "Uniform not found: " << posUniform << std::endl;
-    //     }
-
-    //     if (velLoc != -1) {
-    //         glUniform3f(velLoc, boids[i].velocity.x, boids[i].velocity.y, boids[i].velocity.z);
-    //     } else {
-    //         std::cerr << "Uniform not found: " << velUniform << std::endl;
-    //     }
-    // }
 
     if(!hasStarted) {
         if (mouseLeftPressed) {
@@ -408,19 +380,108 @@ void updateFrame(GLFWwindow* window) {
     //glUniform3fv(3,1, glm::value_ptr(cameraPosition));
 }
 
+
+
+// void renderFrame(GLFWwindow* window) {
+//     int windowWidth, windowHeight;
+//     glfwGetWindowSize(window, &windowWidth, &windowHeight);
+//     glViewport(0, 0, windowWidth, windowHeight);
+
+//     glm::vec2 resolution(windowWidth, windowHeight);
+
+//     // glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+//     // shader_compute->activate();
+//     // //glUseProgram(shader_compute->get());
+
+//     // glDrawArrays(GL_POINTS, 0, NUM_BOIDS); // TODO: what should be the arguments here
+    
+//     // glBindBuffer(GL_FRAMEBUFFER, 0);
+//     // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+ 
+
+    
+//     glUseProgram(computeProgram);
+//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // Rebind just in case
+//     glDispatchCompute(NUM_BOIDS, 1, 1);
+//     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+    
+
+
+
+
+//     shader->activate();
+
+//     glActiveTexture(GL_TEXTURE0);
+//     glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
+
+//     glUseProgram(shader->get()); // Make sure shader is active
+//     //glUniform2fv(u_resolution, 1, glm::value_ptr(resolution));
+//     //glUniform1i(u_texture, 0); // Set the texture unit to 0
+
+//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // positions
+//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity); // velocities
+
+
+//     renderNode(rootNode);
+
+//     // Make the screen into two polygons forming a rectangle and draw it!
+//     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+
+// }
+
 void renderFrame(GLFWwindow* window) {
     int windowWidth, windowHeight;
     glfwGetWindowSize(window, &windowWidth, &windowHeight);
     glViewport(0, 0, windowWidth, windowHeight);
 
-    glm::vec2 resolution(windowWidth, windowHeight);
-    glUseProgram(shader->get()); // Make sure shader is active
-    glUniform2fv(u_resolution, 1, glm::value_ptr(resolution));
+    // Dispatch the compute shader (updates `ssbo`)
+    glUseProgram(computeProgram);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // SSBO with Boid structs
+    glDispatchCompute(NUM_BOIDS, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); // ensure writes are visible
+
+    // Insert this block RIGHT AFTER compute dispatch:
+    {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+        GPUBoid* ptr = (GPUBoid*)glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+
+        if (ptr) {
+            std::vector<glm::vec3> posList, velList;
+            for (int i = 0; i < NUM_BOIDS; ++i) {
+                posList.push_back(ptr[i].position);
+                velList.push_back(ptr[i].velocity);
+            }
+
+            glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+            // Upload to the separate buffers used in fragment shader
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPosition);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, posList.data(), GL_DYNAMIC_DRAW);
+
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, velList.data(), GL_DYNAMIC_DRAW);
+        }
+    }
+
+    // Continue with rendering
+    shader->activate();
+
+    glUseProgram(shader->get());
+
+    glUniform2f(u_resolution, static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+
+    // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // fragment shader reads these
+    // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    GPUBoid* ptr = (GPUBoid*)glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
 
     renderNode(rootNode);
 
-    // Make the screen into two polygons forming a rectangle and draw it!
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); // Fullscreen quad
 }
+
+
+
