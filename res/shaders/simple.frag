@@ -141,17 +141,20 @@ float udTriangle( vec3 p, vec3 a, vec3 b, vec3 c )
 
 
 vec3 animateFish(vec3 p) {
-    float waveFrequency = 1.0;    // How many waves along the fish’s length
-    float waveAmplitude = 0.1;    // Maximum vertical offset
-    float fishLength = 2.5;       // Assumed x-distance from nose to tail
-    float fishFactor = 0.1;
+    float waveFrequency = 1.0;
+    float waveAmplitude = 0.1;
 
-    // Create a factor that goes from 0 at the nose (x=0) to 1 at the tail (x=fishLength)
-    float factor = smoothstep(0.0, fishLength*fishFactor, p.x);
-    
-    // Apply sine-based offset on the y coordinate, scaled by the factor.
-    p.z += sin(p.x * waveFrequency + ( rand(repeatIndex.xy) + iTime)*10.) * waveAmplitude * factor;
-    
+    float nose = 0.0;
+    float tail = 0.25; // or whatever is the tail's max x in your model
+
+    // Tail sway influence: 0.0 at nose, 1.0 at tail
+    float factor = clamp((p.x - nose) / (tail - nose), 0.0, 1.0);
+    factor = pow(factor, 2.0); // Exponential falloff to limit front movement
+
+    // Apply sine wave deformation toward the Z axis
+    p.z += sin(p.x * waveFrequency + (rand(repeatIndex.xy) + iTime) * 10.0) 
+         * waveAmplitude * factor;
+
     return p;
 }
 
@@ -470,8 +473,10 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel){
 }
 
 
-float fishBound(vec3 p) {
+vec2 fishBound(vec3 p) {
     float d = 1e10;
+
+    float renderIndex = 0.0;
     // Adjust this radius so it tightly bounds your fish.
     float boundingRadius = 2.4; // make this smaller
         
@@ -492,6 +497,7 @@ float fishBound(vec3 p) {
         //float fishSDF = sdKinematicTube(p, vel, prevVel);
         
         d = min(d, fishSDF);
+        renderIndex = 1.0;
     } 
 
     boundingRadius = 0.5;
@@ -509,6 +515,7 @@ float fishBound(vec3 p) {
             //float fishSDF = sdFish(localP, 0.5);
      
             d = min(d, fishSDF);
+            renderIndex = 2.0;
             
         } else {
             // Optionally, you can still use the sphere distance as a lower bound.
@@ -516,7 +523,7 @@ float fishBound(vec3 p) {
         }
     }
     
-    return d;
+    return vec2(d, renderIndex);
 }
 
 float oceanFloor(vec3 p) {
@@ -590,6 +597,12 @@ vec2 terrain(vec3 p) {
     return vec2(baseHeight + finalHeight, 3.0);
 }
 
+vec2 terrainBound(vec3 p) {
+    if (p.y < -0.9) {
+        return terrain(p);
+    }
+    return vec2(1000000., 0.0);
+}
 
 
 float coralBlob(vec3 p) {
@@ -600,9 +613,20 @@ float coralBlob(vec3 p) {
 // ===========================================================================================
 
 
-float map(vec3 p){
+vec2 map(vec3 p){
     
-    return min(fishBound(p), terrain(p));
+    //return min(fishBound(p), terrain(p));
+    
+    //return the vec2 with lowest x value
+    vec2 fishSDF = fishBound(p);
+    vec2 terrainSDF = terrainBound(p);
+
+    if (fishSDF.x < terrainSDF.x) {
+        return fishSDF;
+    }
+    else {
+        return terrainSDF;
+    }
 
 }
 
@@ -612,9 +636,9 @@ vec3 calculate_normal(in vec3 p)
 {
     const vec3 small_step = vec3(0.001, 0.0, 0.0);
 
-    float gradient_x = map(p + small_step.xyy) - map(p - small_step.xyy);
-    float gradient_y = map(p + small_step.yxy) - map(p - small_step.yxy);
-    float gradient_z = map(p + small_step.yyx) - map(p - small_step.yyx);
+    float gradient_x = map(p + small_step.xyy).x - map(p - small_step.xyy).x;
+    float gradient_y = map(p + small_step.yxy).x - map(p - small_step.yxy).x;
+    float gradient_z = map(p + small_step.yyx).x - map(p - small_step.yyx).x;
 
     vec3 normal = vec3(gradient_x, gradient_y, gradient_z);
 
@@ -727,7 +751,9 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     while(distanceTraveled < MAXIMUM_TRACE_DISTANCE){
     
         vec3 current_position = ro + distanceTraveled * rd;
-        radius = map(current_position);
+        vec2 mapping = map(current_position);
+        radius = mapping.x;
+        float renderIndex = mapping.y;
         
         if (radius < threshold * distanceTraveled){
             // hit
@@ -740,7 +766,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             
             float caustics = generateCaustics(current_position);
             
-            //caustics = pow(caustics, 0.5) * 2.0;   // Optional: adjust caustics intensity
+            caustics = pow(caustics, 0.5) * 4.0;   // Optional: adjust caustics intensity
             diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
             
             // specular
@@ -752,11 +778,29 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             float boolf = 1.0; // turn effect on or off
             
 
-            if (boolf > 2.) { // TODO: add something that says its on the floor
-                color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.5), 0.0, 1.0));
+            if (renderIndex == 3.0) {
+                //color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 3.), 0.0, 1.0));
+                
+                
+                // float fogAmount = clamp((distanceTraveled - 2.0) / 8.0, 0.0, 1.0);
+                // color = mix(color * (diffuse_intensity + spec), background, fogAmount);
+                float godrays = GodRays(uv, uv2);
+                vec3 lightColor = mix(vec3(0.5, 1.0, 0.8), vec3(0.55, 0.55, 0.95) * 0.75, 1.0 - uv.y);
+                
+                // Blend the godrays (scattered light) with the scene color.
+                // Adjust the blend factor if necessary.
+                background = mix(background, lightColor, (godrays + 0.05)/1.05);
+
+                color *= (diffuse_intensity + spec);
+
+                // Final fog blend based on depth
+                float fogAmount = 1.0 - exp(-pow(distanceTraveled * 0.3, 1.2));
+                color = mix(color, background, fogAmount);
+
+             
             }
             else {
-                color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.5), 0.0, 1.0));
+                color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
             }
 
 
@@ -780,7 +824,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     float particleOverlay = 0.0;
     vec3 particles = vec3(0.0);
 
-    int NUM_PARTICLES = 60;
+    int NUM_PARTICLES = 100;
     for (int i = 0; i < NUM_PARTICLES; ++i) {
         float id = float(i);
 
@@ -804,13 +848,14 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
         particles += alpha * glow * color;
     }
 
-
+    
     vec3 finalColor = background.rgb + particles;
     finalColor = clamp(finalColor, 0.0, 1.0);
     // Glow pulse from small animals
     if (fract(sin( uv.x * 45.1 + iTime * 4.0 + uv.y) * 1234.56) > 0.99998) {
         finalColor += vec3(0.4, 0.7, 0.6); // aqua glow
     }
+
     
     //return vec4(0.4, 0.6, 0.7, 1.);
     return vec4(finalColor,1.);
