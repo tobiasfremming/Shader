@@ -809,7 +809,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             
             caustics = pow(caustics, 0.5) * 3.0;   // Optional: adjust caustics intensity
             diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
-            vec3 causticsColor = vec3(0.5, 0.8, 0.7); // ocean-like tint
+            vec3 causticsColor = vec3(0.5, 0.7, 0.7); // ocean-like tint
             color += causticsColor * caustics * 0.4;  // blend based on strength
             // specular
             vec3 viewDir = normalize(current_position - ro);
@@ -860,38 +860,10 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     // Adjust the blend factor if necessary.
     background = mix(background, lightColor, (godrays + 0.05)/1.05);
 
-    vec3 particleColor1 = vec3(0.3, 0.45, 0.35); // deeper green-brown
-    vec3 particleColor2 = vec3(0.6, 0.2, 0.1);   // slightly lighter variation
-
-    float particleOverlay = 0.0;
-    vec3 particles = vec3(0.0);
-
-    int NUM_PARTICLES = 100;
-    for (int i = 0; i < NUM_PARTICLES; ++i) {
-        float id = float(i);
-
-        // Particle base position and offset
-        float speed = 0.03 + 0.015 * sin(id);
-        vec2 basePos = vec2(
-            fract(sin(id * 73.1) * 43758.5453 + iTime * speed),
-            fract(sin(id * 91.3) * 12345.678 + iTime * speed * 0.5)
-        );
-        basePos.x += 0.02 * sin(iTime * 2.0 + id); // sine wave drift
-
-        // Particle size and alpha depth blending factor
-        float size = 0.004+ 0.005 * fract(sin(id * 13.37) * 123.45);
-        float alpha = 0.3 + 0.7 * fract(sin(id * 45.12) * 789.23); // blend factor (for "depth")
-
-        // Blend between two colors
-        vec3 color = mix(particleColor1, particleColor2, fract(sin(id * 11.7) * 897.2));
-        
-        // Particle glow
-        float glow = drawParticle(gl_FragCoord.xy / iResolution.xy, basePos, size)*0.5;
-        particles += alpha * glow * color;
-    }
+    
 
     
-    vec3 finalColor = background.rgb + particles;
+    vec3 finalColor = background;
     finalColor = clamp(finalColor, 0.0, 1.0);
     // Glow pulse from small animals
     if (fract(sin( uv.x * 45.1 + iTime * 4.0 + uv.y) * 1234.56) > 0.99998) {
@@ -963,8 +935,36 @@ void main()
 
     vec4 result = rayMarch(ro, rd, uv, gl_FragCoord.xy/iResolution.xy);
     
-    
-    fragColor = vec4(result);
+    vec3 particleColor1 = vec3(0.3, 0.45, 0.35); // deeper green-brown
+    vec3 particleColor2 = vec3(0.6, 0.2, 0.1);   // slightly lighter variation
+
+    float particleOverlay = 0.0;
+    vec3 particles = vec3(0.0);
+
+    int NUM_PARTICLES = 100;
+    for (int i = 0; i < NUM_PARTICLES; ++i) {
+        float id = float(i);
+
+        // Particle base position and offset
+        float speed = 0.03 + 0.015 * sin(id);
+        vec2 basePos = vec2(
+            fract(sin(id * 73.1) * 43758.5453 + iTime * speed),
+            fract(sin(id * 91.3) * 12345.678 + iTime * speed * 0.5)
+        );
+        basePos.x += 0.02 * sin(iTime * 2.0 + id); // sine wave drift
+
+        // Particle size and alpha depth blending factor
+        float size = 0.004+ 0.005 * fract(sin(id * 13.37) * 123.45);
+        float alpha = 0.3 + 0.7 * fract(sin(id * 45.12) * 789.23); // blend factor (for "depth")
+
+        // Blend between two colors
+        vec3 color = mix(particleColor1, particleColor2, fract(sin(id * 11.7) * 897.2));
+        
+        // Particle glow
+        float glow = drawParticle(gl_FragCoord.xy / iResolution.xy, basePos, size)*0.5;
+        particles += alpha * glow * color;
+    }
+    fragColor = vec4(result + vec4(particles, 0.0));
     
     //fragColor = vec4(result);
     
