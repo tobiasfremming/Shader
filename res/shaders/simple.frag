@@ -46,6 +46,14 @@ float lastFishScale;
 vec3 lastDolphinLocalP;
 float lastDolphinSegmentRatio; // for longitudinal variation (0 at head, 1 at tail)
 
+// candidate
+vec3 lastFishLocalPCandidate;
+vec3 lastFishRepeatIndexCandidate;
+float lastFishScaleCandidate;
+
+vec3 lastDolphinLocalPCandidate;
+float lastDolphinSegmentRatioCandidate; // for longitudinal variation (0 at head, 1 at tail)
+
 
 
 float dot2( in vec2 v ) { return dot(v,v); }
@@ -230,18 +238,44 @@ vec3 hash3(vec3 p) {
 
 
 
+
+
 vec3 calculateFishColor(vec3 localP, vec3 id) {
-    float bellyBlend = smoothstep(-0.05, 0.05, localP.y); // vertical gradient
+    // ========================
+    // Belly to Back Gradient
+    // ========================
+    float scale = 0.5; // scale for the fish size
+    float bellyBlend = smoothstep(-0.1 * scale, 0.05 * scale, localP.y);
+    vec3 bellyColor = vec3(0.92, 0.94, 0.96);   // bright silver-white
+    vec3 backColor  = vec3(0.05, 0.2, 0.9);     // deep blue
 
-    vec3 belly = vec3(0.95, 0.95, 0.95); // silver-white
-    vec3 back  = vec3(0.1, 0.3, 0.8);    // blue
+    // ========================
+    // Stripe Pattern
+    // ========================
+    float stripeFreqX = 1.0; // number of stripes along x
+    float stripeFreqZ = 2.0; // slight modulation by z
+    float stripe = abs(sin(localP.x * stripeFreqX + localP.z * stripeFreqZ));
 
-    // Stripes using sin or mod
-    float stripe = smoothstep(0.2, 0.0, abs(sin(localP.x * 50.0)));
-    vec3 stripes = mix(back, vec3(0.05), stripe); // dark stripes
+    // Strong dark stripes near the top (fade toward belly)
+    float stripeMask = smoothstep(0.0, 0.6, bellyBlend); // only apply to upper part
+    float stripeDarken = smoothstep(0.4, 0.6, stripe);   // sharper stripes
+    vec3 stripeColor = mix(vec3(0.0), backColor, stripeDarken); // blend stripe into backColor
 
-    return mix(belly, stripes, bellyBlend);
+    // ========================
+    // Combine Stripe with Gradient
+    // ========================
+    vec3 topColor = mix(backColor, stripeColor, stripeMask);
+    vec3 baseColor = mix(bellyColor, topColor, bellyBlend);
+
+    // ========================
+    // Subtle Metallic Sheen
+    // ========================
+    float fresnel = pow(1.0 - abs(dot(normalize(localP), vec3(0.0, 1.0, 0.0))), 5.0);
+    baseColor += fresnel * vec3(0.05, 0.08, 0.1); // subtle cool sheen
+
+    return clamp(baseColor, 0.0, 1.0);
 }
+
 
 
 vec3 calculateFishColor2(vec3 localP, float scale) {
@@ -305,9 +339,9 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
 
                 if (fishSDF < d) {
                     d = fishSDF;
-                    lastFishLocalP = localP;
-                    lastFishRepeatIndex = rid;
-                    lastFishScale = scale;
+                    lastFishLocalPCandidate = localP;
+                    lastFishRepeatIndexCandidate = rid;
+                    lastFishScaleCandidate = scale;
                 }
             }
         }
@@ -436,8 +470,8 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel){
             midpoint=segmentStart+(segmentEnd-segmentStart)*dis.y; 
             ccd = segmentEnd-segmentStart;
 
-            lastDolphinLocalP = p; // already local!
-            lastDolphinSegmentRatio = ih + dis.y / NUMF; // for vertical / longitudinal blend
+            lastDolphinLocalPCandidate = p; // already local!
+            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF; // for vertical / longitudinal blend
         }
 		
 		if( i==3 ) { 
@@ -588,8 +622,14 @@ vec2 fishBound(vec3 p) {
         float fishSDF = dolphin_scale * sdDolphinKinematic(localP/dolphin_scale, vel,  prevVel).x;
         //float fishSDF = sdKinematicTube(p, vel, prevVel);
         
-        d = min(d, fishSDF);
-        renderIndex = 1.0;
+        if (fishSDF < d) {
+            d = fishSDF;
+            renderIndex = 1.0;
+            vec3 lastFishLocalP;
+
+            lastDolphinLocalP = lastDolphinLocalPCandidate;
+            lastDolphinSegmentRatio = lastDolphinSegmentRatioCandidate;
+        }
     } 
 
     boundingRadius = 0.5;
@@ -603,13 +643,16 @@ vec2 fishBound(vec3 p) {
             vec3 localP = p - pos;  // translate into boid's space
             rotationFromDirection(localP, vel);
             
-            float fishSDF = limitedDomainRepeatSDF(localP, 0.5, vec3(1.5), vel);
+            float fishSDF = limitedDomainRepeatSDF(localP, 0.5, vec3(1.4), vel);
             //float fishSDF = sdFish(localP, 0.5);
      
             //d = min(d, fishSDF);
             if (fishSDF < d) {
                 d = fishSDF;
                 renderIndex = 2.0;
+                lastFishLocalP = lastFishLocalPCandidate;
+                lastFishRepeatIndex = lastFishRepeatIndexCandidate;
+                lastFishScale = lastFishScaleCandidate;
             }
             
         } else {
@@ -803,31 +846,35 @@ vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
     vec3 up = vec3(0.0, 1.0, 0.0);
     float facingUp = dot(normal, up);
 
-    if (renderIndex == 2.0) {
-        // Fish - blue top, white belly, black stripes
-        float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
-        float stripe = smoothstep(0.01, 0.03, abs(sin(20.0 * position.x + position.z * 10.0)));
-        vec3 base = mix(vec3(1.0), vec3(0.1, 0.4, 0.9), topBlend); // belly → top
-        base = mix(base, vec3(0.0), stripe); // overlay stripes
-        base *= 1.2; // boost color a bit
-        //return base;
-        return vec3(0.9, 0.2, 0.3); // for debugging
+    // if (renderIndex == 2.0) {
+    //     // Fish - blue top, white belly, black stripes
+    //     float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
+    //     float stripe = smoothstep(0.01, 0.03, abs(sin(20.0 * position.x + position.z * 10.0)));
+    //     vec3 base = mix(vec3(1.0), vec3(0.1, 0.4, 0.9), topBlend); // belly → top
+    //     base = mix(base, vec3(0.0), stripe); // overlay stripes
+    //     base *= 1.2; // boost color a bit
+    //     //return base;
+    //     return vec3(0.9, 0.2, 0.3); // for debugging
 
-    } else if (renderIndex == 1.0) {
-        // Dolphin - gray top, white belly
-        float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
-        //return mix(vec3(1.0), vec3(0.9, 0.9, 0.9), topBlend); // belly → top
-        return vec3(0.5, 0.4, 0.5); // for debugging
+    // } else if (renderIndex == 1.0) {
+    //     // Dolphin - gray top, white belly
+    //     float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
+    //     //return mix(vec3(1.0), vec3(0.9, 0.9, 0.9), topBlend); // belly → top
+    //     return vec3(0.5, 0.4, 0.5); // for debugging
 
 
-    } else if (renderIndex == 3.0) {
-        // Ocean floor - brown and green variation
-        float noiseVal = fbm(position.xz * 0.5*position.y);
+    // } else if (renderIndex == 3.0) {
+    //     // Ocean floor - brown and green variation
+    //     float noiseVal = fbm(position.xz * 0.5*position.y);
+    //     vec3 dirt = vec3(1.0, 0.2, 0.08);
+    //     vec3 moss = vec3(0.2, 1.0, 0.4);
+    //     return mix(dirt, moss, noiseVal);
+        
+    // }
+    float noiseVal = fbm(position.xz * 0.5*position.y);
         vec3 dirt = vec3(1.0, 0.2, 0.08);
         vec3 moss = vec3(0.2, 1.0, 0.4);
         return mix(dirt, moss, noiseVal);
-        
-    }
 
     return vec3(1.0); // fallback white
 }
