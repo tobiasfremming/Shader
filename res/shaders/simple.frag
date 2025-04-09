@@ -26,6 +26,23 @@ layout(std430, binding = 0) buffer BoidBuffer {
 
 out vec4 fragColor;
 
+// Global values for calculating color
+vec3 lastFishLocalP;
+vec3 lastFishRepeatIndex;
+float lastFishScale;
+
+vec3 lastDolphinLocalP;
+float lastDolphinSegmentRatio; // for longitudinal variation (0 at head, 1 at tail)
+
+// candidate
+vec3 lastFishLocalPCandidate;
+vec3 lastFishRepeatIndexCandidate;
+float lastFishScaleCandidate;
+
+vec3 lastDolphinLocalPCandidate;
+float lastDolphinSegmentRatioCandidate; // for longitudinal variation (0 at head, 1 at tail)
+
+
 
 
 vec3 lightPos = vec3(-2.0, -4.0, -2.0);
@@ -218,6 +235,54 @@ vec3 hash3(vec3 p) {
     return fract((p.xxy + p.yzz) * p.zyx);
 }
 
+vec3 calculateFishColor(vec3 localP, float scale) {
+    // -------------------------------
+    // 1. Vertical Belly-to-Back Gradient
+    // -------------------------------
+    // Compute a blend factor based on the local Y coordinate.
+    // For localP.y below -0.1*scale, the fish is fully belly (silver).
+    // For localP.y above 0.05*scale, it’s fully back (blue).
+    float bellyFactor = smoothstep(-0.1 * scale, 0.05 * scale, localP.y);
+
+    // Define the colors.
+    vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
+    // Adjust the back color to be darker blue
+    vec3 backColor  = vec3(1.0, 0.0, 0.1);    // Dark blue (back)
+
+    // Mix the colors with bellyFactor.
+    // When bellyFactor is 0, you get bellyColor; when it's 1, you get backColor.
+    vec3 baseColor = mix(bellyColor, backColor, bellyFactor);
+
+    // -------------------------------
+    // 2. Stripe Pattern (Tiger Stripes on the Blue part)
+    // -------------------------------
+    // We want stripes to appear only on the blue (back) part.
+    // Thus, we define a stripe strength that activates only when bellyFactor is high.
+    float stripeStrength = smoothstep(0.1, 0.5, bellyFactor);
+    stripeStrength = 1.0;
+    
+    // Compute a stripe pattern based on the horizontal axis.  
+    // The high frequency creates many stripes.
+    float stripeFreq = 400.0;
+    float stripePattern = sin(localP.x * stripeFreq + localP.z * 1.0);
+    
+    // Map the absolute stripe pattern to a sharp mask.
+    // Using smoothstep with an inverted range gives sharp transitions.
+    float stripeMask = smoothstep(0.2, 1.5, abs(stripePattern));
+    
+    // The stripe color is black.
+    vec3 stripeColor = vec3(0.0);
+
+    // Mix the base color with black using the stripe mask * strength.
+    // In areas where stripeStrength is 0 (belly), the stripes are not applied.
+    baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
+    
+
+    // Return the color clamped to valid RGB range
+    return clamp(baseColor, 0.0, 1.0);
+}
+
+
 
 
 // Limited Domain Repetition in 3D
@@ -249,8 +314,18 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
                 vec3 cellJitter = (hash3(rid) - 0.5) * jitterAmount;
                 // Compute the local coordinate within this candidate cell with jitter
                 vec3 r = p - s * (rid + cellJitter);
-                float fishSDF = sdFish(rotationFromDirection(r, vel), 0.5);
-                d = min(d, fishSDF);
+                vec3 localP = rotationFromDirection(r, vel); // TODO: use time to add some jitter offset
+                float scale = 0.5;
+                float fishSDF = sdFish(localP, scale);
+                
+                // Calculate fish color
+
+                if (fishSDF < d) {
+                    d = fishSDF;
+                    lastFishLocalPCandidate = localP;
+                    lastFishRepeatIndexCandidate = rid;
+                    lastFishScaleCandidate = scale;
+                }
             }
         }
     }
@@ -357,6 +432,9 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel){
             res=vec2(dis.x,ih+dis.y/NUMF); 
             midpoint=segmentStart+(segmentEnd-segmentStart)*dis.y; 
             ccd = segmentEnd-segmentStart;
+
+            lastDolphinLocalP = lastDolphinLocalPCandidate;
+            lastDolphinSegmentRatio = lastDolphinSegmentRatioCandidate;
         }
 		
 		if( i==3 ) { 
@@ -507,8 +585,14 @@ vec2 fishBound(vec3 p) {
         float fishSDF = dolphin_scale * sdDolphinKinematic(localP/dolphin_scale, vel,  prevVel).x;
         //float fishSDF = sdKinematicTube(p, vel, prevVel);
         
-        d = min(d, fishSDF);
-        renderIndex = 1.0;
+        if (fishSDF < d) {
+            d = fishSDF;
+            renderIndex = 1.0;
+            vec3 lastFishLocalP;
+
+            lastDolphinLocalP = lastDolphinLocalPCandidate;
+            lastDolphinSegmentRatio = lastDolphinSegmentRatioCandidate;
+        }
     } 
 
     boundingRadius = 0.5;
@@ -525,8 +609,13 @@ vec2 fishBound(vec3 p) {
             float fishSDF = limitedDomainRepeatSDF(localP, 0.5, vec3(1.5), vel);
             //float fishSDF = sdFish(localP, 0.5);
      
-            d = min(d, fishSDF);
-            renderIndex = 2.0;
+            if (fishSDF < d) {
+                d = fishSDF;
+                renderIndex = 2.0;
+                lastFishLocalP = lastFishLocalPCandidate;
+                lastFishRepeatIndex = lastFishRepeatIndexCandidate;
+                lastFishScale = lastFishScaleCandidate;
+            }
             
         } else {
             // Optionally, you can still use the sphere distance as a lower bound.
@@ -803,19 +892,24 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
         
         if (radius < threshold * distanceTraveled){
             // hit
-            vec3 color = vec3(1.0, 1.0, 1.0);
+            vec3 color = vec3(0.0, 0.0, 0.0);
             vec3 normal = calculate_normal(current_position);
             normal = ditherNormal(normal, uv); // dither normal to make it look smoother
-
-
-            vec3 baseColor = getObjectColor(renderIndex, current_position, normal);
+            vec3 baseColor = vec3(1.0, 1.0, 1.0);
+            if (renderIndex == 2.0) {
+                baseColor = calculateFishColor(lastFishLocalP, lastFishScale);
+            }
+            else{
+                baseColor = getObjectColor(renderIndex, current_position, normal);
+                color = baseColor;
+            }
             color = baseColor;
 
-            float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-            if (renderIndex == 1.0 || renderIndex == 2.0) {
-                float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-                color = mix(color, vec3(1.0), 0.1 * fresnel);
-            }
+            // float fresnel = pow(1.0 - dot(rd, normal), 3.0);
+            // if (renderIndex == 1.0 || renderIndex == 2.0) {
+            //     float fresnel = pow(1.0 - dot(rd, normal), 3.0);
+            //     color = mix(color, vec3(1.0), 0.1 * fresnel);
+            // }
 
 
             
