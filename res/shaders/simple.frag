@@ -38,6 +38,16 @@ vec3 ccd, ccp;
 int currentIndex;
 vec3 repeatIndex;
 
+// Global values for calculating color
+vec3 lastFishLocalP;
+vec3 lastFishRepeatIndex;
+float lastFishScale;
+
+vec3 lastDolphinLocalP;
+float lastDolphinSegmentRatio; // for longitudinal variation (0 at head, 1 at tail)
+
+
+
 float dot2( in vec2 v ) { return dot(v,v); }
 float dot2( in vec3 v ) { return dot(v,v); }
 float ndot( in vec2 a, in vec2 b ) { return a.x*b.x - a.y*b.y; }
@@ -220,6 +230,44 @@ vec3 hash3(vec3 p) {
 
 
 
+vec3 calculateFishColor(vec3 localP, vec3 id) {
+    float bellyBlend = smoothstep(-0.05, 0.05, localP.y); // vertical gradient
+
+    vec3 belly = vec3(0.95, 0.95, 0.95); // silver-white
+    vec3 back  = vec3(0.1, 0.3, 0.8);    // blue
+
+    // Stripes using sin or mod
+    float stripe = smoothstep(0.2, 0.0, abs(sin(localP.x * 50.0)));
+    vec3 stripes = mix(back, vec3(0.05), stripe); // dark stripes
+
+    return mix(belly, stripes, bellyBlend);
+}
+
+
+vec3 calculateFishColor2(vec3 localP, float scale) {
+    // Belly-to-back blend based on vertical Y
+    float bellyBlend = smoothstep(-0.08, 0.03, localP.y);  // adjust based on your fish size
+
+    vec3 bellyColor = vec3(0.9, 0.9, 0.95);   // silvery-white
+    vec3 backColor  = vec3(0.1, 0.4, 0.8);    // blueish
+
+    // Horizontal stripes (like a mackerel): oscillate in x-space
+    float stripeFreq = 40.0;
+    float stripe = smoothstep(0.02, 0.04, abs(sin(localP.x * stripeFreq + localP.z * 10.0)));
+
+    vec3 stripedColor = mix(backColor, vec3(0.05, 0.05, 0.05), stripe);  // dark stripes on back
+
+    // Combine belly and back (with stripes on top)
+    vec3 baseColor = mix(bellyColor, stripedColor, bellyBlend);
+
+    // Optional: simulate metallic sheen (iridescence tweak)
+    float fresnel = pow(1.0 - dot(normalize(localP), vec3(0.0, 1.0, 0.0)), 3.0);
+    baseColor += fresnel * 0.1;
+
+    return baseColor;
+}
+
+
 // Limited Domain Repetition in 3D
 // p   : the point in space to evaluate
 // s   : repetition period (cell size)
@@ -249,8 +297,18 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
                 vec3 cellJitter = (hash3(rid) - 0.5) * jitterAmount;
                 // Compute the local coordinate within this candidate cell with jitter
                 vec3 r = p - s * (rid + cellJitter);
-                float fishSDF = sdFish(rotationFromDirection(r, vel), 0.5);
-                d = min(d, fishSDF);
+                vec3 localP = rotationFromDirection(r, vel); // TODO: use time to add some jitter offset
+                float scale = 0.5;
+                float fishSDF = sdFish(localP, scale);
+                
+                // Calculate fish color
+
+                if (fishSDF < d) {
+                    d = fishSDF;
+                    lastFishLocalP = localP;
+                    lastFishRepeatIndex = rid;
+                    lastFishScale = scale;
+                }
             }
         }
     }
@@ -261,6 +319,26 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
 
 
 // DOLPHIN ===================================================================================
+
+vec3 calculateDolphinColor(vec3 localP, float spineRatio) {
+    // Vertical gradient (Y axis): belly to top
+    float bellyBlend = smoothstep(-0.1, 0.05, localP.y);
+
+    vec3 belly = vec3(0.85, 0.85, 0.88);   // silvery gray
+    vec3 back  = vec3(0.1, 0.1, 0.15);     // dark steel blue
+    vec3 bodyColor = mix(belly, back, bellyBlend);
+
+    // Optional: dorsal stripe?
+    float dorsalStripe = smoothstep(0.0, 0.02, abs(localP.z));
+    bodyColor = mix(bodyColor, bodyColor * 0.7, dorsalStripe);
+
+    // Optional: darken tail slightly
+    float tailDarken = smoothstep(0.6, 1.0, spineRatio);
+    bodyColor *= mix(1.0, 0.75, tailDarken);
+
+    return bodyColor;
+}
+
 
 float sdEllipsoid( in vec3 p, in vec3 r ) 
 {
@@ -357,6 +435,9 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel){
             res=vec2(dis.x,ih+dis.y/NUMF); 
             midpoint=segmentStart+(segmentEnd-segmentStart)*dis.y; 
             ccd = segmentEnd-segmentStart;
+
+            lastDolphinLocalP = p; // already local!
+            lastDolphinSegmentRatio = ih + dis.y / NUMF; // for vertical / longitudinal blend
         }
 		
 		if( i==3 ) { 
@@ -868,7 +949,17 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             normal = ditherNormal(normal, uv); // dither normal to make it look smoother
 
 
-            vec3 baseColor = getObjectColor(renderIndex, current_position, normal);
+
+            vec3 baseColor = vec3(1.0, 1.0, 1.0);
+            if (renderIndex == 1.0) {
+                baseColor = calculateDolphinColor(lastDolphinLocalP, lastDolphinSegmentRatio);
+            }
+            else if (renderIndex == 2.0) {
+                baseColor = calculateFishColor(lastFishLocalP, lastFishRepeatIndex);
+            }
+            else {
+                baseColor = getObjectColor(renderIndex, current_position, normal);
+            }
             color = baseColor;
             
             vec3 direction_to_light = normalize(current_position - lightPosition);
@@ -899,6 +990,8 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
                         
             // // Vlumetric fog (approximate) %Report
             float boolf = 1.0; // turn effect on or off
+
+            
 
             if (renderIndex == 3.0) {
                 
