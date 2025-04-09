@@ -24,6 +24,7 @@ const float COHESION_WEIGHT = 0.3;
 const float SEPARATION_WEIGHT = 0.8;
 
 const float TERRAIN_Y_MIN = -1.0;
+const float TERRAIN_Y_MAX = 2.0;
 const float FLOOR_AVOIDANCE_STRENGTH = 3.0;
 const float FLOOR_AVOIDANCE_RANGE = 0.1;
 
@@ -112,7 +113,7 @@ void main() {
     vec3 pos = boids[id].position;
     vec3 vel = boids[id].velocity;
 
-    vec3 bounds = vec3(6.0, 2.5, 2.5);
+    vec3 bounds = vec3(3.0, 2.5, 2.5);
     vec3 acceleration = vec3(0.0);
 
     if (id == 0) {
@@ -138,6 +139,13 @@ void main() {
             float push = (1.0 - distToFloor / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
             vec3 floorForce = vec3(0.0, push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
             acceleration += floorForce;
+        }
+
+        float distToRoof = pos.y - TERRAIN_Y_MAX;
+        if (distToFloor < FLOOR_AVOIDANCE_RANGE) {
+            float push = (1.0 - distToRoof / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
+            vec3 roofForce = vec3(0.0, push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
+            acceleration += roofForce;
         }
 
         float distTOCamera = pos.x - CAMERA_X_MIN;
