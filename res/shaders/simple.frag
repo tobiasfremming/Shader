@@ -525,8 +525,11 @@ vec2 fishBound(vec3 p) {
             float fishSDF = limitedDomainRepeatSDF(localP, 0.5, vec3(1.5), vel);
             //float fishSDF = sdFish(localP, 0.5);
      
-            d = min(d, fishSDF);
-            renderIndex = 2.0;
+            //d = min(d, fishSDF);
+            if (fishSDF < d) {
+                d = fishSDF;
+                renderIndex = 2.0;
+            }
             
         } else {
             // Optionally, you can still use the sphere distance as a lower bound.
@@ -727,7 +730,7 @@ vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
         base = mix(base, vec3(0.0), stripe); // overlay stripes
         base *= 1.2; // boost color a bit
         //return base;
-        return vec3(0.2, 0.2, 0.6); // for debugging
+        return vec3(0.9, 0.2, 0.3); // for debugging
 
     } else if (renderIndex == 1.0) {
         // Dolphin - gray top, white belly
@@ -867,10 +870,6 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
 
             vec3 baseColor = getObjectColor(renderIndex, current_position, normal);
             color = baseColor;
-
-            
-
-
             
             vec3 direction_to_light = normalize(current_position - lightPosition);
             
@@ -881,7 +880,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             caustics = pow(caustics, 0.5) * 3.0;   // Optional: adjust caustics intensity
             diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
             vec3 causticsColor = vec3(0.5, 0.8, 1.0); // ocean-like tint
-            color += causticsColor * caustics * 0.4;  // blend based on strength
+            color += causticsColor * caustics * 0.6;  // blend based on strength
             //specular
             //vec3 viewDir = normalize(current_position - ro);
             vec3 viewDir = normalize(ro - current_position);
@@ -889,9 +888,9 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
 
             float gloss = 1.5;     // Dolphin shininess
-            float gloss2 = 0.4;     // Optional reflection boost
+            float gloss2 = 10.4;     // Optional reflection boost
             float ao = 1.0;         // Ambient occlusion placeholder
-            float shadows = 1.0;    // (Set to 0.0 if you skip softshadow)
+            float shadows = 0.0;    // (Set to 0.0 if you skip softshadow)
             vec3 lightDirection = normalize(lightPosition - current_position);
             //float shadowFactor = softShadow(current_position + normal * 0.01, lightDirection, 16.0);
 
@@ -915,7 +914,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             }
             else {
                 //color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
-                color = mix(color, background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
+                color = mix(color, background, boolf * clamp(pow(distanceTraveled/4., 0.7), 0.0, 1.0));
 
             }
             return vec4(color, 1.);
