@@ -247,7 +247,7 @@ vec3 calculateFishColor(vec3 localP, float scale) {
     // Define the colors.
     vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
     // Adjust the back color to be darker blue
-    vec3 backColor  = vec3(1.0, 0.0, 0.1);    // Dark blue (back)
+    vec3 backColor  = vec3(0.9, 0.5, 0.1);    // Dark blue (back)
 
     // Mix the colors with bellyFactor.
     // When bellyFactor is 0, you get bellyColor; when it's 1, you get backColor.

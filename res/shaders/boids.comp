@@ -120,8 +120,8 @@ void main() {
         boids[1].velocity = vel;
         vec3 chase = computePredatorChase(pos);
         acceleration = PREDATOR_CHASE_WEIGHT * chase;
-        vel = normalize(vel + acceleration * 0.15) * 5.0;
-        vel *= 0.5;
+        vel = normalize(vel + acceleration * 0.05) * 3.0;
+        
     
     } else if (id > 1) {
         vec3 align = computeAlignment(id, pos);
@@ -160,7 +160,9 @@ void main() {
     }
 
     pos += vel * TIME_STEP;
-    pos = wrapPosition(pos, bounds);
+    if (id > 1) {
+        pos = wrapPosition(pos, bounds);
+    }
 
     boids[id].position = pos;
     boids[id].velocity = vel;
