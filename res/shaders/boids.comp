@@ -10,7 +10,7 @@ layout(std430, binding = 0) buffer BoidBuffer {
     Boid boids[];
 };
 
-const int NUM_BOIDS = 20;
+const int NUM_BOIDS = 17;
 
 const float ALIGNMENT_RADIUS = 0.7;
 const float COHESION_RADIUS = 0.9;
@@ -29,7 +29,7 @@ const float FLOOR_AVOIDANCE_RANGE = 0.1;
 
 const float CAMERA_X_MIN = -3.0;
 
-const float TIME_STEP = 0.01;
+const float TIME_STEP = 0.012;
 
 vec3 wrapPosition(vec3 p, vec3 bounds) {
     return p - 2.0 * bounds * floor((p + bounds) / (2.0 * bounds));
@@ -119,8 +119,8 @@ void main() {
         boids[1].velocity = vel;
         vec3 chase = computePredatorChase(pos);
         acceleration = PREDATOR_CHASE_WEIGHT * chase;
-        vel = normalize(vel + acceleration * 0.15) * 5.0;
-        vel *= 0.5;
+        vel = normalize(vel + acceleration * 0.15) * 2.0;
+        
     
     } else if (id > 1) {
         vec3 align = computeAlignment(id, pos);

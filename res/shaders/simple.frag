@@ -1,5 +1,5 @@
 #version 430 core
-#define NUM_BOIDS 20
+#define NUM_BOIDS 17
 #define KINEMATICS_INDEX 20
 #define NUMI 10
 #define NUMF 10.0
@@ -237,68 +237,89 @@ vec3 hash3(vec3 p) {
 }
 
 
-
-
-
-vec3 calculateFishColor(vec3 localP, vec3 id) {
-    // ========================
-    // Belly to Back Gradient
-    // ========================
-    float scale = 0.5; // scale for the fish size
-    float bellyBlend = smoothstep(-0.1 * scale, 0.05 * scale, localP.y);
-    vec3 bellyColor = vec3(0.92, 0.94, 0.96);   // bright silver-white
-    vec3 backColor  = vec3(0.05, 0.2, 0.9);     // deep blue
-
-    // ========================
-    // Stripe Pattern
-    // ========================
-    float stripeFreqX = 1.0; // number of stripes along x
-    float stripeFreqZ = 2.0; // slight modulation by z
-    float stripe = abs(sin(localP.x * stripeFreqX + localP.z * stripeFreqZ));
-
-    // Strong dark stripes near the top (fade toward belly)
-    float stripeMask = smoothstep(0.0, 0.6, bellyBlend); // only apply to upper part
-    float stripeDarken = smoothstep(0.4, 0.6, stripe);   // sharper stripes
-    vec3 stripeColor = mix(vec3(0.0), backColor, stripeDarken); // blend stripe into backColor
-
-    // ========================
-    // Combine Stripe with Gradient
-    // ========================
-    vec3 topColor = mix(backColor, stripeColor, stripeMask);
-    vec3 baseColor = mix(bellyColor, topColor, bellyBlend);
-
-    // ========================
-    // Subtle Metallic Sheen
-    // ========================
-    float fresnel = pow(1.0 - abs(dot(normalize(localP), vec3(0.0, 1.0, 0.0))), 5.0);
-    baseColor += fresnel * vec3(0.05, 0.08, 0.1); // subtle cool sheen
-
+vec3 calculateFishColor3(vec3 localP, float scale) {
+    // -------------------------------
+    // 1. Vertical Belly-to-Back Gradient
+    // -------------------------------
+    // Normalize the Y coordinate relative to fish size
+    float normalizedY = localP.y / scale;
+    
+    // Compute belly factor (1.0 at bottom, 0.0 at top)
+    // Adjust these thresholds to control where the transition happens
+    float bellyFactor = smoothstep(0.05, -0.1, normalizedY); // Inverted for proper blending
+    
+    // Define colors
+    vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
+    vec3 backColor = vec3(0.00, 0.0, 0.1);     // Dark blue (back)
+    
+    // Base color mix
+    vec3 baseColor = mix(backColor, bellyColor, bellyFactor);
+    
+    // -------------------------------
+    // 2. Stripe Pattern (only on back)
+    // -------------------------------
+    // Only apply stripes where bellyFactor is low (on the back)
+    float stripeStrength = 1.0 - smoothstep(0.1, 0.6, bellyFactor);
+    
+    // Create stripe pattern based on horizontal position
+    float stripeFreq = 100.0; // Reduced frequency for more visible stripes
+    float stripePattern = sin(localP.x * stripeFreq * 2.0) * 
+                         sin(localP.z * stripeFreq * 0.9);
+    
+    // Sharp stripe mask
+    float stripeMask = step( 0.9, abs(stripePattern));
+    
+    // Apply stripes only to the back portion
+    baseColor = mix(baseColor, vec3(0.0), stripeMask * stripeStrength);
+    
     return clamp(baseColor, 0.0, 1.0);
 }
 
 
+vec3 calculateFishColor(vec3 localP, float scale) {
+    // -------------------------------
+    // 1. Vertical Belly-to-Back Gradient
+    // -------------------------------
+    // Compute a blend factor based on the local Y coordinate.
+    // For localP.y below -0.1*scale, the fish is fully belly (silver).
+    // For localP.y above 0.05*scale, it’s fully back (blue).
+    float bellyFactor = smoothstep(-0.1 * scale, 0.05 * scale, localP.y);
 
-vec3 calculateFishColor2(vec3 localP, float scale) {
-    // Belly-to-back blend based on vertical Y
-    float bellyBlend = smoothstep(-0.08, 0.03, localP.y);  // adjust based on your fish size
+    // Define the colors.
+    vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
+    // Adjust the back color to be darker blue
+    vec3 backColor  = vec3(0.00, 0.0, 0.1);    // Dark blue (back)
 
-    vec3 bellyColor = vec3(0.9, 0.9, 0.95);   // silvery-white
-    vec3 backColor  = vec3(0.1, 0.4, 0.8);    // blueish
+    // Mix the colors with bellyFactor.
+    // When bellyFactor is 0, you get bellyColor; when it's 1, you get backColor.
+    vec3 baseColor = mix(bellyColor, backColor, 0.8);
 
-    // Horizontal stripes (like a mackerel): oscillate in x-space
-    float stripeFreq = 40.0;
-    float stripe = smoothstep(0.02, 0.04, abs(sin(localP.x * stripeFreq + localP.z * 10.0)));
+    // -------------------------------
+    // 2. Stripe Pattern (Tiger Stripes on the Blue part)
+    // -------------------------------
+    // We want stripes to appear only on the blue (back) part.
+    // Thus, we define a stripe strength that activates only when bellyFactor is high.
+    float stripeStrength = smoothstep(0.1, 0.5, bellyFactor);
+    
+    // Compute a stripe pattern based on the horizontal axis.  
+    // The high frequency creates many stripes.
+    float stripeFreq = 200.0;
+    float stripePattern = sin(localP.x * stripeFreq + localP.z * 1.0);
+    
+    // Map the absolute stripe pattern to a sharp mask.
+    // Using smoothstep with an inverted range gives sharp transitions.
+    float stripeMask = smoothstep(0.2, 0.15, abs(stripePattern));
+    
+    // The stripe color is black.
+    vec3 stripeColor = vec3(0.0);
 
-    vec3 stripedColor = mix(backColor, vec3(0.05, 0.05, 0.05), stripe);  // dark stripes on back
+    // Mix the base color with black using the stripe mask * strength.
+    // In areas where stripeStrength is 0 (belly), the stripes are not applied.
+    baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
+    
 
-    // Combine belly and back (with stripes on top)
-    vec3 baseColor = mix(bellyColor, stripedColor, bellyBlend);
-
-    // Optional: simulate metallic sheen (iridescence tweak)
-    float fresnel = pow(1.0 - dot(normalize(localP), vec3(0.0, 1.0, 0.0)), 3.0);
-    baseColor += fresnel * 0.1;
-
-    return baseColor;
+    // Return the color clamped to valid RGB range
+    return clamp(baseColor, 0.0, 1.0);
 }
 
 
@@ -355,6 +376,7 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
 // DOLPHIN ===================================================================================
 
 vec3 calculateDolphinColor(vec3 localP, float spineRatio) {
+    return vec3(0.7, 0.6, 0.8); // Placeholder for dolphin color
     // Vertical gradient (Y axis): belly to top
     float bellyBlend = smoothstep(-0.1, 0.05, localP.y);
 
@@ -1002,7 +1024,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
                 baseColor = calculateDolphinColor(lastDolphinLocalP, lastDolphinSegmentRatio);
             }
             else if (renderIndex == 2.0) {
-                baseColor = calculateFishColor(lastFishLocalP, lastFishRepeatIndex);
+                baseColor = calculateFishColor(lastFishLocalP, lastFishScale);
             }
             else {
                 baseColor = getObjectColor(renderIndex, current_position, normal);
@@ -1011,19 +1033,19 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             
             vec3 direction_to_light = normalize(current_position - lightPosition);
             
-            float diffuse_intensity = max(0.01, dot(normal, direction_to_light));
+            //float diffuse_intensity = max(0.01, dot(normal, direction_to_light));
             
             float caustics = generateCaustics(current_position);
             
             caustics = pow(caustics, 0.5) * 3.0;   // Optional: adjust caustics intensity
-            diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
+            //diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
             vec3 causticsColor = vec3(0.5, 0.8, 1.0); // ocean-like tint
             color += causticsColor * caustics * 0.6;  // blend based on strength
             //specular
             //vec3 viewDir = normalize(current_position - ro);
             vec3 viewDir = normalize(ro - current_position);
-            vec3 reflectDir = reflect(direction_to_light, normal);
-            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
+            // vec3 reflectDir = reflect(direction_to_light, normal);
+            // float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
 
             float gloss = 1.5;     // Dolphin shininess
             float gloss2 = 10.4;     // Optional reflection boost

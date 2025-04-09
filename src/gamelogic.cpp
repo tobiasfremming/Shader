@@ -29,7 +29,7 @@ struct Boid {
 
 
 
-constexpr int NUM_BOIDS = 27; // Number of boids in the simulation
+constexpr int NUM_BOIDS = 25; // Number of boids in the simulation
 //std::vector<Boid> boids(NUM_BOIDS);
 
 struct GPUBoid {
