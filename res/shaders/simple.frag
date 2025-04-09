@@ -28,7 +28,7 @@ out vec4 fragColor;
 
 
 
-vec3 lightPos = vec3(2.0, -5.0, 3.0);
+vec3 lightPos = vec3(-2.0, -4.0, -2.0);
 
 float fishTime;
 float isJump;
@@ -48,6 +48,17 @@ float rand(vec2 co) { return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758
 float smoothMin(in float da, in float db, in float k){
     float h = max(k - abs(da - db), 0.0) / k;
     return min(da, db) - h * h * h * k * (1.0 / 6.0);
+}
+
+vec3 ditherNormal(vec3 normal, vec2 uv) {
+    // Apply a small random offset to the normal based on the UV coordinates
+    float ditherAmount = 0.02; // Adjust this value to control the dithering intensity
+    vec3 ditheredNormal = normal + ditherAmount * vec3(
+        rand(uv + vec2(1.0, 0.0)) - 0.5,
+        rand(uv + vec2(0.0, 1.0)) - 0.5,
+        rand(uv) - 0.5
+    );
+    return normalize(ditheredNormal);
 }
 
 float expSmoothMin(float a, float b, float k) {
@@ -641,22 +652,26 @@ vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
         // Fish - blue top, white belly, black stripes
         float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
         float stripe = smoothstep(0.01, 0.03, abs(sin(20.0 * position.x + position.z * 10.0)));
-        vec3 base = mix(vec3(1.0), vec3(0.0, 0.3, 0.8), topBlend); // belly → top
+        vec3 base = mix(vec3(1.0), vec3(0.1, 0.4, 0.9), topBlend); // belly → top
         base = mix(base, vec3(0.0), stripe); // overlay stripes
         base *= 1.2; // boost color a bit
         return base;
+        //return vec3(0.1, 0.4, 0.9); // for debugging
 
     } else if (renderIndex == 1.0) {
         // Dolphin - gray top, white belly
         float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
-        return mix(vec3(1.0), vec3(0.4, 0.4, 0.4), topBlend); // belly → top
+        return mix(vec3(1.0), vec3(0.9, 0.9, 0.9), topBlend); // belly → top
+        //return vec3(0.9, 0.9, 0.0); // for debugging
+
 
     } else if (renderIndex == 3.0) {
         // Ocean floor - brown and green variation
-        float noiseVal = fbm(position.xz * 1.0);
-        vec3 dirt = vec3(0.4, 0.2, 0.08);
-        vec3 moss = vec3(0.2, 0.8, 0.4);
+        float noiseVal = fbm(position.xz * 0.5*position.y);
+        vec3 dirt = vec3(1.0, 0.2, 0.08);
+        vec3 moss = vec3(0.2, 1.0, 0.4);
         return mix(dirt, moss, noiseVal);
+        
     }
 
     return vec3(1.0); // fallback white
@@ -776,7 +791,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     float distanceTraveled = 0.0;
     float radius = 1000000.0;
     const float MAXIMUM_TRACE_DISTANCE = 1000.0;
-    vec3 lightPosition = vec3(2.0, -5.0, 3.0);
+    vec3 lightPosition = lightPos;
     vec3 background = mix(vec3(0.1, 0.3, 0.5), vec3(0.788, 0.956, 1.0), uv.y*0.5);
     
     while(distanceTraveled < MAXIMUM_TRACE_DISTANCE){
@@ -790,13 +805,16 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             // hit
             vec3 color = vec3(1.0, 1.0, 1.0);
             vec3 normal = calculate_normal(current_position);
+            normal = ditherNormal(normal, uv); // dither normal to make it look smoother
 
-            color = getObjectColor(renderIndex, current_position, normal);
+
+            vec3 baseColor = getObjectColor(renderIndex, current_position, normal);
+            color = baseColor;
 
             float fresnel = pow(1.0 - dot(rd, normal), 3.0);
             if (renderIndex == 1.0 || renderIndex == 2.0) {
                 float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-                color = mix(color, vec3(1.0), 0.15 * fresnel);
+                color = mix(color, vec3(1.0), 0.1 * fresnel);
             }
 
 
@@ -809,43 +827,33 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             
             caustics = pow(caustics, 0.5) * 3.0;   // Optional: adjust caustics intensity
             diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
-            vec3 causticsColor = vec3(0.5, 0.7, 0.7); // ocean-like tint
+            vec3 causticsColor = vec3(0.5, 0.8, 1.0); // ocean-like tint
             color += causticsColor * caustics * 0.4;  // blend based on strength
             // specular
             vec3 viewDir = normalize(current_position - ro);
             vec3 reflectDir = reflect(direction_to_light, normal);
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
-            
+            // vec3 viewDir = normalize(ro - current_position);
+            // vec3 halfDir = normalize(direction_to_light + viewDir);
+            // float spec = pow(max(dot(normal, halfDir), 0.0), 64.0); // sharper specular
+                        
             // // Vlumetric fog (approximate) %Report
             float boolf = 1.0; // turn effect on or off
-            
 
             if (renderIndex == 3.0) {
-                //color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 3.), 0.0, 1.0));
                 
-                
-                // float fogAmount = clamp((distanceTraveled - 2.0) / 8.0, 0.0, 1.0);
-                // color = mix(color * (diffuse_intensity + spec), background, fogAmount);
                 float godrays = GodRays(uv, uv2);
                 vec3 lightColor = mix(vec3(0.5, 1.0, 0.8), vec3(0.55, 0.55, 0.95) * 0.75, 1.0 - uv.y);
-                
-                // Blend the godrays (scattered light) with the scene color.
-                // Adjust the blend factor if necessary.
                 background = mix(background, lightColor, (godrays + 0.05)/1.05);
-
                 color *= (diffuse_intensity + spec);
 
                 // Final fog blend based on depth
                 float fogAmount = 1.0 - exp(-pow(distanceTraveled * 0.3, 1.2));
                 color = mix(color, background, fogAmount);
-
-             
             }
             else {
                 color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
             }
-
-
             return vec4(color, 1.);
             
         }
