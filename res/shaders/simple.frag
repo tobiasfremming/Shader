@@ -4,8 +4,11 @@
 #define NUMI 10
 #define NUMF 10.0
 
-#define GOD_RAY_LENGTH 1.1 // higher number = shorter rays
-#define GOD_RAY_FREQUENCY 28.0
+#define MAX_ITER 5
+#define TAU 6.28318530718
+
+#define GOD_RAY_LENGTH 0.9 // higher number = shorter rays
+#define GOD_RAY_FREQUENCY 32.0
 
 uniform float iTime;
 uniform vec2 iResolution;
@@ -516,6 +519,78 @@ float fishBound(vec3 p) {
     return d;
 }
 
+float oceanFloor(vec3 p) {
+    return p.y + 1.0; // flat horizontal plane at y = -1.0
+}
+
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+
+
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+
+    // Bilinear interpolation
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+
+    vec2 u = f * f * (3.0 - 2.0 * f); // smoothstep
+
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float fbm(vec2 p) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 1.0;
+
+    for (int i = 0; i < 5; i++) {
+        value += amplitude * noise(p * frequency);
+        frequency *= 2.0;
+        amplitude *= 0.5;
+    }
+
+    return value;
+}
+
+float warpedFbm(vec2 p) {
+    vec2 q = vec2(fbm(p + vec2(1.7, 9.2)),
+                  fbm(p + vec2(8.3, 2.8)));
+
+    return fbm(p + 2.0 * q);
+}
+
+vec2 terrain(vec3 p) {
+    float baseHeight = p.y + 1.5;
+
+    // 🌊 Macro amplitude shaping
+    float macro = fbm(p.xz * 0.15);           // slow macro undulation
+    float macroHeight = mix(0.5, 1.5, macro); // varying terrain "scale"
+
+    // 🪨 Mid-frequency detail hills and ridges
+    float ridges = abs(sin(p.x * 0.3) * sin(p.z * 0.3));  // simple repeating ridges
+    float ridgeHeight = 0.3 * ridges;
+
+    // 🧱 Mountain height: large, blocky terrain from low-freq FBM
+    float mountains = pow(fbm(p.xz * 0.07 + vec2(5.0)), 1.8); // steeper features
+    float mountainHeight = 1.4 * mountains;
+
+    // 🔀 Combine terrain components
+    float finalHeight =
+        macroHeight *
+        (0.4 * warpedFbm(p.xz * 1.5 + iTime * 0.02) +  // small detail
+         ridgeHeight +
+         mountainHeight);
+
+    return vec2(baseHeight + finalHeight, 3.0);
+}
+
+
 
 float coralBlob(vec3 p) {
     p.y += 1.5; // raise from floor
@@ -527,7 +602,7 @@ float coralBlob(vec3 p) {
 
 float map(vec3 p){
     
-    return (fishBound(p));
+    return min(fishBound(p), terrain(p));
 
 }
 
@@ -573,6 +648,64 @@ float GodRays(  in vec2 ndc, in vec2 uv) {
     return light;
 }
 
+float causticsPattern(vec3 worldPos) {
+    float time = iTime * 0.5 + 23.0;
+    vec2 uv = worldPos.xz * 0.5; // Change scale as needed
+    vec2 p = mod(uv * TAU, TAU) - 250.0;
+    vec2 i = p;
+
+    float c = 1.0;
+    float inten = 0.005;
+
+    for (int n = 0; n < MAX_ITER; n++) {
+        float t = time * (1.0 - (3.5 / float(n + 1)));
+        i = p + vec2(
+            cos(t - i.x) + sin(t + i.y),
+            sin(t - i.y) + cos(t + i.x)
+        );
+        c += 1.0 / length(vec2(
+            p.x / (sin(i.x + t) / inten),
+            p.y / (cos(i.y + t) / inten)
+        ));
+    }
+
+    c /= float(MAX_ITER);
+    c = 1.17 - pow(c, 1.4);
+    return clamp(pow(abs(c), 8.0), 0.0, 1.0);
+}
+
+float generateCaustics(vec3 position) {
+    vec2 coord = position.xz * 0.5;
+    vec2 tileCoord = mod(coord * TAU, TAU) - 250.0;
+    vec2 warp = tileCoord;
+
+    float accum = 1.0;
+    float strength = 0.005;
+    float phase = iTime * 0.5 + 23.0;
+
+    for (int i = 0; i < MAX_ITER; ++i) {
+        float speed = phase * (1.0 - (3.5 / float(i + 1)));
+
+        warp = tileCoord + vec2(
+            sin(warp.y + speed) + cos(warp.x - speed),
+            cos(warp.x + speed) + sin(warp.y - speed)
+        );
+
+        vec2 denom = vec2(
+            sin(warp.x + speed) / strength,
+            cos(warp.y + speed) / strength
+        );
+
+        accum += 1.0 / length(tileCoord / denom);
+    }
+
+    accum /= float(MAX_ITER);
+    float bright = 1.15 - pow(accum, 1.45);
+    return clamp(pow(abs(bright), 7.5), 0.0, 1.0);
+}
+
+
+
 
 
 
@@ -605,14 +738,28 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             
             float diffuse_intensity = max(0.0, dot(normal, direction_to_light));
             
+            float caustics = generateCaustics(current_position);
+            
+            //caustics = pow(caustics, 0.5) * 2.0;   // Optional: adjust caustics intensity
+            diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
+            
             // specular
             vec3 viewDir = normalize(current_position - ro);
             vec3 reflectDir = reflect(direction_to_light, normal);
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
             
-            // Vlumetric fog (approximate) %Report
+            // // Vlumetric fog (approximate) %Report
             float boolf = 1.0; // turn effect on or off
-            color = mix(color * (diffuse_intensity + spec), background, boolf * pow(distanceTraveled/5., 1.));
+            
+
+            if (boolf > 2.) { // TODO: add something that says its on the floor
+                color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.5), 0.0, 1.0));
+            }
+            else {
+                color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.5), 0.0, 1.0));
+            }
+
+
             return vec4(color, 1.);
             
         }
@@ -651,7 +798,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
 
         // Blend between two colors
         vec3 color = mix(particleColor1, particleColor2, fract(sin(id * 11.7) * 897.2));
-
+        
         // Particle glow
         float glow = drawParticle(gl_FragCoord.xy / iResolution.xy, basePos, size)*0.5;
         particles += alpha * glow * color;
