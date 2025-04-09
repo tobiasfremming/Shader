@@ -643,7 +643,21 @@ vec2 map(vec3 p){
 
 // LIGHTING ==========================================================
 
-vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
+// https://iquilezles.org/articles/rmshadows/
+float softShadow(vec3 ro, vec3 rd, float k) {
+    float res = 1.0;
+    float t = 0.02; // start distance to skip self-shadowing
+    for (int i = 0; i < 24; i++) {
+        float h = map(ro + rd * t).x;
+        if (h < 0.001) return 0.0; // fully in shadow
+        res = min(res, k * h / t);
+        t += clamp(h, 0.01, 0.3); // adaptive stepping
+        if (t > 10.0) break;
+    }
+    return clamp(res, 0.0, 1.0);
+}
+
+vec3 doLighting2(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
     vec3 lightDir = normalize(lightPos);
     vec3 halfVec = normalize(lightDir - viewDir);
     vec3 refl = reflect(-viewDir, normal);
@@ -658,17 +672,45 @@ vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, 
 
     // -- TUNED --
     vec3 brdf = vec3(0.0);
-    brdf += 1.5 * diff * vec3(1.0);                             // sunlight
+    brdf += 1.5 * diff * vec3(1.0)*shadows;                             // sunlight
     brdf += 0.8 * sky * vec3(0.3, 0.5, 0.7);                    // sky tint
     brdf += 0.4 * ground * vec3(0.1, 0.15, 0.1);                // soft green bounce
     brdf += 0.3 * back * vec3(0.2, 0.2, 0.25);                  // gentle backlighting
     brdf += 0.6 * sss * vec3(1.0) * gloss * ao;                 // subtle SSS
-    brdf += 0.5 * spec * vec3(1.0) * fresnel * gloss * ao;      // specular
+    brdf += 0.5 * spec * vec3(1.0) * fresnel * gloss * ao * shadows;      // specular
     // Optional soft reflection boost
     brdf += 0.25 * pow(max(dot(refl, lightDir), 0.0), 4.0) * gloss2;
 
     return baseColor * brdf;
 }
+
+vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
+    vec3 lightDir = normalize(lightPos); // your global lightPos is fine
+    vec3 halfVec = normalize(lightDir - viewDir);
+    vec3 refl = reflect(viewDir, normal);
+
+    float sky     = clamp(normal.y, 0.0, 1.0);
+    float ground  = clamp(-normal.y, 0.0, 1.0);
+    float diff    = max(dot(normal, lightDir), 0.0);
+    float back    = max(0.3 + 0.7 * dot(normal, -vec3(lightDir.x, 0.0, lightDir.z)), 0.0);
+    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
+    float spec    = pow(max(dot(halfVec, normal), 0.0), 32.0 * gloss);
+    float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
+
+    // Optional: real shadow tracing if you have softShadow()
+    float shadowFactor = softShadow(pos + normal * 0.01, lightDir, 16.0);
+
+    vec3 brdf = vec3(0.0);
+    brdf += 2.0 * diff * vec3(1.00, 0.75, 0.55) * shadowFactor;
+    brdf += 0.5  * sky  * vec3(0.20, 0.45, 0.6) * (0.5 + 0.5 * ao);
+    brdf += 0.1  * back * vec3(0.40, 0.6, 0.8);
+    brdf += 0.5  * ground * vec3(0.1, 0.2, 0.15);
+    brdf += 0.4  * sss  * vec3(0.3, 0.3, 0.35) * gloss * ao;
+    brdf += 0.15  * spec * vec3(1.2, 1.1, 1.0) * shadowFactor * fresnel * gloss;
+
+    return baseColor * brdf;
+}
+
 
 
 
@@ -684,14 +726,14 @@ vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
         vec3 base = mix(vec3(1.0), vec3(0.1, 0.4, 0.9), topBlend); // belly → top
         base = mix(base, vec3(0.0), stripe); // overlay stripes
         base *= 1.2; // boost color a bit
-        return base;
-        //return vec3(0.1, 0.4, 0.9); // for debugging
+        //return base;
+        return vec3(0.2, 0.2, 0.6); // for debugging
 
     } else if (renderIndex == 1.0) {
         // Dolphin - gray top, white belly
         float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
-        return mix(vec3(1.0), vec3(0.9, 0.9, 0.9), topBlend); // belly → top
-        //return vec3(0.9, 0.9, 0.0); // for debugging
+        //return mix(vec3(1.0), vec3(0.9, 0.9, 0.9), topBlend); // belly → top
+        return vec3(0.5, 0.4, 0.5); // for debugging
 
 
     } else if (renderIndex == 3.0) {
@@ -720,20 +762,6 @@ vec3 calculate_normal(in vec3 p)
     return normalize(normal);
 }
 
-vec2 getLightScreenPos(vec3 lightPos, vec3 ro, vec3 forward, vec3 right, vec3 up) {
-    // Compute the vector from camera to light
-    vec3 lightVec = lightPos - ro;
-    // Get the depth (distance along forward)
-    float z = dot(lightVec, forward);
-    // Project the light’s x and y onto the camera plane
-    float x = dot(lightVec, right);
-    float y = dot(lightVec, up);
-    // Perspective divide (assuming a simple pinhole projection)
-    vec2 proj = vec2(x, y) / z;
-    // This result is now in normalized device coordinates (roughly -1 to 1).
-    // (Adjust if your uv space is defined differently.)
-    return proj;
-}
 
 float GodRays(  in vec2 ndc, in vec2 uv) {
     vec2 godRayOrigin = ndc + vec2(-1.15, -1.25);
@@ -860,18 +888,15 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             vec3 reflectDir = reflect(direction_to_light, normal);
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
 
-            float gloss = 0.5;     // Dolphin shininess
-            float gloss2 = 0.04;     // Optional reflection boost
+            float gloss = 1.5;     // Dolphin shininess
+            float gloss2 = 0.4;     // Optional reflection boost
             float ao = 1.0;         // Ambient occlusion placeholder
             float shadows = 1.0;    // (Set to 0.0 if you skip softshadow)
+            vec3 lightDirection = normalize(lightPosition - current_position);
+            //float shadowFactor = softShadow(current_position + normal * 0.01, lightDirection, 16.0);
 
             color = doLighting(current_position, normal, viewDir, gloss, gloss2, shadows, color, ao);
 
-            float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-            if (renderIndex == 1.0 || renderIndex == 2.0) {
-                float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-                color = mix(color, vec3(1.0), 0.1 * fresnel);
-            }
                         
             // // Vlumetric fog (approximate) %Report
             float boolf = 1.0; // turn effect on or off
