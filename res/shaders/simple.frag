@@ -643,6 +643,34 @@ vec2 map(vec3 p){
 
 // LIGHTING ==========================================================
 
+vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
+    vec3 lightDir = normalize(lightPos); // your global lightPos is fine
+    vec3 halfVec = normalize(lightDir - viewDir);
+    vec3 refl = reflect(viewDir, normal);
+
+    float sky     = clamp(normal.y, 0.0, 1.0);
+    float ground  = clamp(-normal.y, 0.0, 1.0);
+    float diff    = max(dot(normal, lightDir), 0.0);
+    float back    = max(0.3 + 0.7 * dot(normal, -vec3(lightDir.x, 0.0, lightDir.z)), 0.0);
+    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
+    float spec    = pow(max(dot(halfVec, normal), 0.0), 32.0 * gloss);
+    float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
+
+    // Optional: real shadow tracing if you have softshadow()
+    float shadowFactor = 1.0; // TODO: replace with softshadow() if needed
+
+    vec3 brdf = vec3(0.0);
+    brdf += 20.0 * diff * vec3(1.00, 0.75, 0.55) * shadowFactor;
+    brdf += 5.0  * sky  * vec3(0.20, 0.45, 0.6) * (0.5 + 0.5 * ao);
+    brdf += 1.0  * back * vec3(0.40, 0.6, 0.8);
+    brdf += 5.0  * ground * vec3(0.1, 0.2, 0.15);
+    brdf += 4.0  * sss  * vec3(0.3, 0.3, 0.35) * gloss * ao;
+    brdf += 1.5  * spec * vec3(1.2, 1.1, 1.0) * shadowFactor * fresnel * gloss;
+
+    return baseColor * brdf;
+}
+
+
 vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
     // Lighting directions
     vec3 up = vec3(0.0, 1.0, 0.0);
@@ -811,17 +839,13 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             vec3 baseColor = getObjectColor(renderIndex, current_position, normal);
             color = baseColor;
 
-            float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-            if (renderIndex == 1.0 || renderIndex == 2.0) {
-                float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-                color = mix(color, vec3(1.0), 0.1 * fresnel);
-            }
+            
 
 
             
             vec3 direction_to_light = normalize(current_position - lightPosition);
             
-            float diffuse_intensity = max(0.0, dot(normal, direction_to_light));
+            float diffuse_intensity = max(0.01, dot(normal, direction_to_light));
             
             float caustics = generateCaustics(current_position);
             
@@ -829,13 +853,24 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
             vec3 causticsColor = vec3(0.5, 0.8, 1.0); // ocean-like tint
             color += causticsColor * caustics * 0.4;  // blend based on strength
-            // specular
-            vec3 viewDir = normalize(current_position - ro);
+            //specular
+            //vec3 viewDir = normalize(current_position - ro);
+            vec3 viewDir = normalize(ro - current_position);
             vec3 reflectDir = reflect(direction_to_light, normal);
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
-            // vec3 viewDir = normalize(ro - current_position);
-            // vec3 halfDir = normalize(direction_to_light + viewDir);
-            // float spec = pow(max(dot(normal, halfDir), 0.0), 64.0); // sharper specular
+
+            float gloss = 0.5;     // Dolphin shininess
+            float gloss2 = 0.04;     // Optional reflection boost
+            float ao = 1.0;         // Ambient occlusion placeholder
+            float shadows = 1.0;    // (Set to 0.0 if you skip softshadow)
+
+            color = doLighting(current_position, normal, viewDir, gloss, gloss2, shadows, color, ao)* 0.2;
+
+            float fresnel = pow(1.0 - dot(rd, normal), 3.0);
+            if (renderIndex == 1.0 || renderIndex == 2.0) {
+                float fresnel = pow(1.0 - dot(rd, normal), 3.0);
+                color = mix(color, vec3(1.0), 0.1 * fresnel);
+            }
                         
             // // Vlumetric fog (approximate) %Report
             float boolf = 1.0; // turn effect on or off
@@ -845,14 +880,17 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
                 float godrays = GodRays(uv, uv2);
                 vec3 lightColor = mix(vec3(0.5, 1.0, 0.8), vec3(0.55, 0.55, 0.95) * 0.75, 1.0 - uv.y);
                 background = mix(background, lightColor, (godrays + 0.05)/1.05);
-                color *= (diffuse_intensity + spec);
+                //color *= (diffuse_intensity + spec);
 
                 // Final fog blend based on depth
                 float fogAmount = 1.0 - exp(-pow(distanceTraveled * 0.3, 1.2));
                 color = mix(color, background, fogAmount);
+                
             }
             else {
-                color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
+                //color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
+                color = mix(color, background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
+
             }
             return vec4(color, 1.);
             
