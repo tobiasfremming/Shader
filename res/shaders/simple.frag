@@ -575,15 +575,15 @@ float warpedFbm(vec2 p) {
 vec2 terrain(vec3 p) {
     float baseHeight = p.y + 1.5;
 
-    // 🌊 Macro amplitude shaping
+    // Macro amplitude shaping
     float macro = fbm(p.xz * 0.15);           // slow macro undulation
     float macroHeight = mix(0.5, 1.5, macro); // varying terrain "scale"
 
-    // 🪨 Mid-frequency detail hills and ridges
+    // Mid-frequency detail hills and ridges
     float ridges = abs(sin(p.x * 0.3) * sin(p.z * 0.3));  // simple repeating ridges
     float ridgeHeight = 0.3 * ridges;
 
-    // 🧱 Mountain height: large, blocky terrain from low-freq FBM
+    // Mountain height: large, blocky terrain from low-freq FBM
     float mountains = pow(fbm(p.xz * 0.07 + vec2(5.0)), 1.8); // steeper features
     float mountainHeight = 1.4 * mountains;
 
@@ -631,6 +631,37 @@ vec2 map(vec3 p){
 }
 
 // LIGHTING ==========================================================
+
+vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
+    // Lighting directions
+    vec3 up = vec3(0.0, 1.0, 0.0);
+    float facingUp = dot(normal, up);
+
+    if (renderIndex == 2.0) {
+        // Fish - blue top, white belly, black stripes
+        float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
+        float stripe = smoothstep(0.01, 0.03, abs(sin(20.0 * position.x + position.z * 10.0)));
+        vec3 base = mix(vec3(1.0), vec3(0.0, 0.3, 0.8), topBlend); // belly → top
+        base = mix(base, vec3(0.0), stripe); // overlay stripes
+        base *= 1.2; // boost color a bit
+        return base;
+
+    } else if (renderIndex == 1.0) {
+        // Dolphin - gray top, white belly
+        float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
+        return mix(vec3(1.0), vec3(0.4, 0.4, 0.4), topBlend); // belly → top
+
+    } else if (renderIndex == 3.0) {
+        // Ocean floor - brown and green variation
+        float noiseVal = fbm(position.xz * 1.0);
+        vec3 dirt = vec3(0.4, 0.2, 0.08);
+        vec3 moss = vec3(0.2, 0.8, 0.4);
+        return mix(dirt, moss, noiseVal);
+    }
+
+    return vec3(1.0); // fallback white
+}
+
 
 vec3 calculate_normal(in vec3 p)
 {
@@ -759,6 +790,16 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             // hit
             vec3 color = vec3(1.0, 1.0, 1.0);
             vec3 normal = calculate_normal(current_position);
+
+            color = getObjectColor(renderIndex, current_position, normal);
+
+            float fresnel = pow(1.0 - dot(rd, normal), 3.0);
+            if (renderIndex == 1.0 || renderIndex == 2.0) {
+                float fresnel = pow(1.0 - dot(rd, normal), 3.0);
+                color = mix(color, vec3(1.0), 0.15 * fresnel);
+            }
+
+
             
             vec3 direction_to_light = normalize(current_position - lightPosition);
             
@@ -766,9 +807,10 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             
             float caustics = generateCaustics(current_position);
             
-            caustics = pow(caustics, 0.5) * 4.0;   // Optional: adjust caustics intensity
+            caustics = pow(caustics, 0.5) * 3.0;   // Optional: adjust caustics intensity
             diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
-            
+            vec3 causticsColor = vec3(0.5, 0.8, 0.7); // ocean-like tint
+            color += causticsColor * caustics * 0.4;  // blend based on strength
             // specular
             vec3 viewDir = normalize(current_position - ro);
             vec3 reflectDir = reflect(direction_to_light, normal);
