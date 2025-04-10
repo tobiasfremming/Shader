@@ -112,7 +112,7 @@ void main() {
     vec3 pos = boids[id].position;
     vec3 vel = boids[id].velocity;
 
-    vec3 bounds = vec3(6.0, 2.5, 2.5);
+    vec3 bounds = vec3(3.0, 2.0, 2.5);
     vec3 acceleration = vec3(0.0);
 
     if (id == 0) {
@@ -152,7 +152,9 @@ void main() {
     }
 
     pos += vel * TIME_STEP;
-    pos = wrapPosition(pos, bounds);
+    if (id > 1){
+        pos = wrapPosition(pos, bounds);
+    }
 
     boids[id].position = pos;
     boids[id].velocity = vel;
