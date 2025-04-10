@@ -1039,8 +1039,9 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             
             caustics = pow(caustics, 0.5) * 3.0;   // Optional: adjust caustics intensity
             //diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
-            vec3 causticsColor = vec3(0.5, 0.8, 1.0); // ocean-like tint
-            color += causticsColor * caustics * 0.6;  // blend based on strength
+            //vec3 causticsColor = vec3(0.5, 0.8, 1.0); // ocean-like tint
+            //color += causticsColor * caustics * 0.6;  // blend based on strength
+            color *= caustics;
             //specular
             //vec3 viewDir = normalize(current_position - ro);
             vec3 viewDir = normalize(ro - current_position);
