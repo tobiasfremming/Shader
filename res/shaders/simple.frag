@@ -451,7 +451,390 @@ mat3 rotationMatrix(vec3 axis, float angle) {
     );
 }
 
-vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel){
+vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
+    // Improved direction blending with smoother transitions
+    float lagFactor = 0.4;
+    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : vec3(0.0, 0.0, -1.0);
+    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : vec3(0.0, 0.0, -1.0);
+    
+    // Use smootherstep for blending to avoid sharp transitions
+    float blendFactor = smoothstep(0.0, 0.5, dot(dirPrev, dirCurr));
+    vec3 blendedDir = normalize(mix(dirPrev, dirCurr, mix(lagFactor, 1.0, 1.0-blendFactor)));
+    
+    vec2 res = vec2(1000.0, 0.0);
+    vec3 segmentStart = anima2();
+    
+    vec3 p1 = segmentStart, p2 = segmentStart, p3 = segmentStart;
+    vec3 d1 = vec3(0.0), d2 = vec3(0.0), d3 = vec3(0.0);
+    vec3 midpoint = segmentStart;
+    
+    for(int i = 0; i < NUMI; i++) {
+        float ih = float(i) / NUMF;
+        vec2 anim = anima(ih, fishTime);
+        float ll = (i == 0) ? 0.655 : 0.48;
+        
+        // Create animation offset with fallback for zero velocity
+        vec3 animOffset = length(vel) > 0.0 ? 
+            normalize(vec3(sin(anim.y), sin(anim.x), cos(anim.x))) :
+            vec3(0.0, 0.1, 1.0);
+        
+        // Blend directions with ensured validity
+        vec3 segmentDir = normalize(mix(blendedDir, animOffset, min(lagFactor * 1.5, 0.9)));
+        
+        // Ensure segment direction is valid
+        if (any(isnan(segmentDir))){ segmentDir = vec3(0.0, 0.0, 1.0);}
+        
+        vec3 segmentEnd = segmentStart + ll * segmentDir;
+        
+        vec2 dis = sd2Segment(segmentStart, segmentEnd, p);
+        
+        if(dis.x < res.x) {
+            res = vec2(dis.x, ih + dis.y / NUMF);
+            midpoint = mix(segmentStart, segmentEnd, dis.y);
+            ccd = segmentEnd - segmentStart;
+            
+            lastDolphinLocalPCandidate = p;
+            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF;
+        }
+        
+        // Store reference points for fins/tail
+        if(i == 3) { p1 = segmentStart; d1 = segmentEnd - segmentStart; }
+        if(i == 4) { p3 = segmentStart; d3 = segmentEnd - segmentStart; }
+        if(i == (NUMI - 1)) { p2 = segmentEnd; d2 = segmentEnd - segmentStart; }
+        
+        segmentStart = segmentEnd;
+    }
+    ccp = midpoint;
+    
+    // Body SDF (unchanged but more robust)
+    float h = res.y;
+    float ra = 0.05 + h * (1.0 - h) * (1.0 - h) * 2.7;
+    ra += 7.0 * max(0.0, h - 0.04) * exp(-30.0 * max(0.0, h - 0.04)) * smoothstep(-0.1, 0.1, p.y - midpoint.y);
+    ra -= 0.03 * (smoothstep(0.0, 0.1, abs(p.y - midpoint.y))) * (1.0 - smoothstep(0.0, 0.1, h));
+    ra += 0.05 * clamp(1.0 - 3.0 * h, 0.0, 1.0);
+    ra += 0.035 * (1.0 - smoothstep(0.0, 0.025, abs(h - 0.1))) * (1.0 - smoothstep(0.0, 0.1, abs(p.y - midpoint.y)));
+    
+    res.x = 0.75 * (distance(p, midpoint) - ra);
+    
+    // Improved fin/tail calculations with stability checks
+    if(length(d3) > 0.0) {
+        // Blend the fin direction with the overall movement direction
+        vec3 finDir = normalize(mix(blendedDir, normalize(d3), lagFactor));
+        
+        // Create rotation matrix with proper up vector handling
+        vec3 upRef = abs(dot(finDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(upRef, finDir));
+        vec3 newUp = cross(finDir, right);
+        mat3 finRot = mat3(right, newUp, finDir);
+        
+        // Transform point to fin space (using transpose for correct transformation)
+        vec3 ps = transpose(finRot) * (p - p3);
+        ps.z -= 0.4;
+        
+        // Fin SDF calculations
+        float d5 = length(ps.yz) - 0.9;
+        d5 = max(d5, -(length(ps.yz - vec2(0.6, 0.0)) - 0.35));
+        d5 = max(d5, udRoundBox(ps + vec3(0.0, -0.5, 0.5), vec3(0.0, 0.5, 0.5), 0.02));
+        res.x = smoothMin(res.x, d5, 0.1);
+    }
+    
+    if(length(d1) > 0.0) {
+        // Blend the fin direction with the overall movement direction
+        vec3 finDir2 = normalize(mix(blendedDir, normalize(d1), lagFactor));
+        
+        // Create rotation matrix with proper up vector handling
+        vec3 upRefFin2 = abs(dot(finDir2, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 rightFin2 = normalize(cross(upRefFin2, finDir2));
+        vec3 newUpFin2 = cross(finDir2, rightFin2);
+        mat3 finRot2 = mat3(rightFin2, newUpFin2, finDir2);
+        
+        // Transform point to fin space (using transpose for correct transformation)
+        vec3 finLocal2 = transpose(finRot2) * (p - p1);
+        finLocal2.x = abs(finLocal2.x);
+        
+        // Compute blend factor for fin shape
+        float lVal = smoothstep(0.4, 0.9, finLocal2.x);
+        lVal *= 1.0 - clamp(5.0 * abs(finLocal2.z + 0.2), 0.0, 1.0);
+        
+        finLocal2 += vec3(-0.2, 0.36, -0.2);
+        float dFin2 = length(finLocal2.xz) - 0.8;
+        dFin2 = max(dFin2, -(length(finLocal2.xz - vec2(0.2, 0.4)) - 0.8));
+        dFin2 = max(dFin2, udRoundBox(finLocal2, vec3(1.0, 0.0, 1.0), 0.015 + 0.05 * lVal));
+        res.x = smoothMin(res.x, dFin2, 0.12);
+    }
+    
+    if(length(d2) > 0.0) {
+        // Blend the tail direction with the overall movement direction (less lag for more responsiveness)
+        vec3 tailDir = normalize(mix(blendedDir, normalize(d2), 0.8));
+        
+        // Create rotation matrix with proper up vector handling
+        vec3 upRef = abs(dot(tailDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(upRef, tailDir));
+        vec3 newUp = cross(tailDir, right);
+        mat3 tailRot = mat3(right, newUp, tailDir);
+        
+        // Transform point to tail space (using transpose for correct transformation)
+        vec3 tailLocal = transpose(tailRot) * (p - p2 - tailDir * 0.25);
+        
+        // Tail SDF calculations
+        float dTail = length(tailLocal.xz) - 0.6;
+        dTail = max(dTail, -(length(tailLocal.xz - vec2(0.0, 0.8)) - 0.9));
+        dTail = max(dTail, udRoundBox(tailLocal, vec3(1.0, 0.005, 1.0), 0.005));
+        res.x = smoothMin(res.x, dTail, 0.1);
+    }
+    
+    return res;
+}
+
+vec2 sdDolphinKinematicBESTYET(vec3 p, vec3 vel, vec3 prevVel) {
+    // Direction blending (unchanged)
+    float lagFactor = 0.4;
+    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : vec3(0.0, 0.0, -1.0);
+    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : vec3(0.0, 0.0, -1.0);
+    
+    float blendFactor = smoothstep(0.0, 0.5, dot(dirPrev, dirCurr));
+    vec3 blendedDir = normalize(mix(dirPrev, dirCurr, mix(lagFactor, 1.0, 1.0-blendFactor)));
+    
+    vec2 res = vec2(1000.0, 0.0);
+    vec3 segmentStart = anima2();
+    
+    // Store all segments for proper body shape and fin placement
+    vec3[NUMI] segments;
+    vec3[NUMI] segmentDirs;
+    vec3 midpoint = segmentStart;
+    
+    for(int i = 0; i < NUMI; i++) {
+        float ih = float(i) / NUMF;
+        vec2 anim = anima(ih, fishTime);
+        float ll = (i == 0) ? 0.655 : 0.48;
+        
+        vec3 animOffset = length(vel) > 0.0 ? 
+            normalize(vec3(sin(anim.y), sin(anim.x), cos(anim.x))) :
+            vec3(0.0, 0.1, 1.0);
+        
+        vec3 segmentDir = normalize(mix(blendedDir, animOffset, min(lagFactor * 1.5, 0.9)));
+        if (any(isnan(segmentDir))) segmentDir = vec3(0.0, 0.0, 1.0);
+        
+        vec3 segmentEnd = segmentStart + ll * segmentDir;
+        
+        segments[i] = segmentStart;
+        segmentDirs[i] = segmentDir;
+        
+        vec2 dis = sd2Segment(segmentStart, segmentEnd, p);
+        if(dis.x < res.x) {
+            res = vec2(dis.x, ih + dis.y / NUMF);
+            midpoint = mix(segmentStart, segmentEnd, dis.y);
+            ccd = segmentEnd - segmentStart;
+            lastDolphinLocalPCandidate = p;
+            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF;
+        }
+        
+        segmentStart = segmentEnd;
+    }
+    ccp = midpoint;
+    
+    // RESTORE ORIGINAL DOLPHIN BODY SHAPE
+    float h = res.y;
+    float ra = 0.05 + h*(1.0-h)*(1.0-h)*2.7;
+    // Dolphin-specific shape adjustments
+    ra += 7.0*max(0.0,h-0.04)*exp(-30.0*max(0.0,h-0.04)) * smoothstep(-0.1, 0.1, p.y-midpoint.y);
+    ra -= 0.03*(smoothstep(0.0, 0.1, abs(p.y-midpoint.y)))*(1.0-smoothstep(0.0,0.1,h));
+    ra += 0.05*clamp(1.0-3.0*h,0.0,1.0);
+    ra += 0.035*(1.0-smoothstep( 0.0, 0.025, abs(h-0.1) ))* (1.0-smoothstep(0.0, 0.1, abs(p.y-midpoint.y)));
+    
+    // Main body SDF with proper dolphin shape
+    res.x = 0.75 * (distance(p,midpoint) - ra);
+    
+    // IMPROVED FIN/TAL CALCULATIONS (now properly attached to body)
+    
+    // Dorsal fin (using segment 4)
+    if(NUMI > 4) {
+        vec3 finBase = segments[4];
+        vec3 segmentDir = segmentDirs[4];
+        
+        // Calculate segment-aligned rotation
+        vec3 segmentRight = normalize(cross(segmentDir, vec3(0,1,0)));
+        vec3 segmentUp = normalize(cross(segmentRight, segmentDir));
+        mat3 finRot = mat3(segmentRight, segmentUp, segmentDir);
+        
+        // Transform to fin local space
+        vec3 finLocal = finRot * (p - finBase);
+        finLocal.z -= 0.4; // Position adjustment
+        
+        // Dorsal fin SDF
+        float dFin = length(finLocal.yz) - 0.9;
+        dFin = max(dFin, -(length(finLocal.yz - vec2(0.6, 0.0)) - 0.35));
+        dFin = max(dFin, udRoundBox(finLocal + vec3(0.0, -0.5, 0.5), vec3(0.0, 0.5, 0.5), 0.02));
+        res.x = smoothMin(res.x, dFin, 0.1);
+    }
+    
+    // Pectoral fins (segment 3)
+    if(NUMI > 3) {
+        vec3 finBase = segments[3];
+        vec3 segmentDir = segmentDirs[3];
+        
+        // Calculate segment-aligned rotation
+        vec3 segmentRight = normalize(cross(segmentDir, vec3(0,1,0)));
+        vec3 segmentUp = normalize(cross(segmentRight, segmentDir));
+        mat3 finRot = mat3(segmentRight, segmentUp, segmentDir);
+        
+        // Transform to fin local space
+        vec3 finLocal = finRot * (p - finBase);
+        finLocal.x = abs(finLocal.x); // Mirror for both fins
+        
+        // Pectoral fin SDF
+        float lVal = smoothstep(0.4, 0.9, finLocal.x);
+        lVal *= 1.0 - clamp(5.0 * abs(finLocal.z + 0.2), 0.0, 1.0);
+        
+        finLocal += vec3(-0.2, 0.36, -0.2); // Fin position offset
+        
+        float dFin = length(finLocal.xz) - 0.8;
+        dFin = max(dFin, -(length(finLocal.xz - vec2(0.2, 0.4)) - 0.8));
+        dFin = max(dFin, udRoundBox(finLocal, vec3(1.0, 0.0, 1.0), 0.015 + 0.05 * lVal));
+        res.x = smoothMin(res.x, dFin, 0.12);
+    }
+    
+    // Tail (last segment)
+    if(NUMI > 1) {
+        vec3 tailBase = segments[NUMI-1];
+        vec3 segmentDir = segmentDirs[NUMI-1];
+        
+        // Calculate segment-aligned rotation
+        vec3 segmentRight = normalize(cross(segmentDir, vec3(0,1,0)));
+        vec3 segmentUp = normalize(cross(segmentRight, segmentDir));
+        mat3 tailRot = mat3(segmentRight, segmentUp, segmentDir);
+        
+        // Transform to tail local space
+        vec3 tailLocal = tailRot * (p - tailBase - segmentDir * 0.25);
+        
+        // Tail SDF
+        float dTail = length(tailLocal.xz) - 0.6;
+        dTail = max(dTail, -(length(tailLocal.xz - vec2(0.0, 0.8)) - 0.9));
+        dTail = max(dTail, udRoundBox(tailLocal, vec3(1.0, 0.005, 1.0), 0.005));
+        res.x = smoothMin(res.x, dTail, 0.1);
+    }
+    
+    return res;
+}
+
+vec2 sdDolphinKinematic1(vec3 p, vec3 vel, vec3 prevVel) {
+    // Improved direction blending with smoother transitions
+    float lagFactor = 0.4;
+    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : vec3(0.0, 0.0, -1.0);
+    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : vec3(0.0, 0.0, -1.0);
+    
+    // Use smootherstep for blending to avoid sharp transitions
+    float blendFactor = smoothstep(0.0, 0.5, dot(dirPrev, dirCurr));
+    vec3 blendedDir = normalize(mix(dirPrev, dirCurr, mix(lagFactor, 1.0, 1.0-blendFactor)));
+    
+    vec2 res = vec2(1000.0, 0.0);
+    vec3 segmentStart = anima2();
+    
+    vec3 p1 = segmentStart, p2 = segmentStart, p3 = segmentStart;
+    vec3 d1 = vec3(0.0), d2 = vec3(0.0), d3 = vec3(0.0);
+    vec3 midpoint = segmentStart;
+    
+    for(int i = 0; i < NUMI; i++) {
+        float ih = float(i) / NUMF;
+        vec2 anim = anima(ih, fishTime);
+        float ll = (i == 0) ? 0.655 : 0.48;
+        
+        // Create animation offset with fallback for zero velocity
+        vec3 animOffset = length(vel) > 0.0 ? 
+            normalize(vec3(sin(anim.y), sin(anim.x), cos(anim.x))) :
+            vec3(0.0, 0.1, 1.0);
+        
+        // Blend directions with ensured validity
+        vec3 segmentDir = normalize(mix(blendedDir, animOffset, min(lagFactor * 1.5, 0.9)));
+        
+        // Ensure segment direction is valid
+        if (any(isnan(segmentDir))){ segmentDir = vec3(0.0, 0.0, 1.0);}
+        
+        vec3 segmentEnd = segmentStart + ll * segmentDir;
+        
+        vec2 dis = sd2Segment(segmentStart, segmentEnd, p);
+        
+        if(dis.x < res.x) {
+            res = vec2(dis.x, ih + dis.y / NUMF);
+            midpoint = mix(segmentStart, segmentEnd, dis.y);
+            ccd = segmentEnd - segmentStart;
+            
+            lastDolphinLocalPCandidate = p;
+            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF;
+        }
+        
+        // Store reference points for fins/tail
+        if(i == 3) { p1 = segmentStart; d1 = segmentEnd - segmentStart; }
+        if(i == 4) { p3 = segmentStart; d3 = segmentEnd - segmentStart; }
+        if(i == (NUMI - 1)) { p2 = segmentEnd; d2 = segmentEnd - segmentStart; }
+        
+        segmentStart = segmentEnd;
+    }
+    ccp = midpoint;
+    
+    // Body SDF (unchanged but more robust)
+    float h = res.y;
+    float ra = 0.05 + h * (1.0 - h) * (1.0 - h) * 2.7;
+    ra += 7.0 * max(0.0, h - 0.04) * exp(-30.0 * max(0.0, h - 0.04)) * smoothstep(-0.1, 0.1, p.y - midpoint.y);
+    ra -= 0.03 * (smoothstep(0.0, 0.1, abs(p.y - midpoint.y))) * (1.0 - smoothstep(0.0, 0.1, h));
+    ra += 0.05 * clamp(1.0 - 3.0 * h, 0.0, 1.0);
+    ra += 0.035 * (1.0 - smoothstep(0.0, 0.025, abs(h - 0.1))) * (1.0 - smoothstep(0.0, 0.1, abs(p.y - midpoint.y)));
+    
+    res.x = 0.75 * (distance(p, midpoint) - ra);
+    
+    // Improved fin/tail calculations with stability checks
+    if(length(d3) > 0.0) {
+        vec3 finDir = normalize(d3);
+        vec3 upRef = abs(dot(finDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(upRef, finDir));
+        vec3 newUp = cross(finDir, right);
+        mat3 finRot = mat3(right, newUp, finDir);
+        
+        vec3 ps = finRot * (p - p3);
+        ps.z -= 0.4;
+        float d5 = length(ps.yz) - 0.9;
+        d5 = max(d5, -(length(ps.yz - vec2(0.6, 0.0)) - 0.35));
+        d5 = max(d5, udRoundBox(ps + vec3(0.0, -0.5, 0.5), vec3(0.0, 0.5, 0.5), 0.02));
+        res.x = smoothMin(res.x, d5, 0.1);
+    }
+    
+    if(length(d1) > 0.0) {
+        vec3 finDir2 = normalize(d1);
+        vec3 upRefFin2 = abs(dot(finDir2, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 rightFin2 = normalize(cross(upRefFin2, finDir2));
+        vec3 newUpFin2 = cross(finDir2, rightFin2);
+        mat3 finRot2 = mat3(rightFin2, newUpFin2, finDir2);
+        
+        vec3 finLocal2 = finRot2 * (p - p1);
+        finLocal2.x = abs(finLocal2.x);
+        float lVal = smoothstep(0.4, 0.9, finLocal2.x);
+        lVal *= 1.0 - clamp(5.0 * abs(finLocal2.z + 0.2), 0.0, 1.0);
+        
+        finLocal2 += vec3(-0.2, 0.36, -0.2);
+        float dFin2 = length(finLocal2.xz) - 0.8;
+        dFin2 = max(dFin2, -(length(finLocal2.xz - vec2(0.2, 0.4)) - 0.8));
+        dFin2 = max(dFin2, udRoundBox(finLocal2, vec3(1.0, 0.0, 1.0), 0.015 + 0.05 * lVal));
+        res.x = smoothMin(res.x, dFin2, 0.12);
+    }
+    
+    if(length(d2) > 0.0) {
+        vec3 tailDir = normalize(d2);
+        vec3 upRef = abs(dot(tailDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(upRef, tailDir));
+        vec3 newUp = cross(tailDir, right);
+        mat3 tailRot = mat3(right, newUp, tailDir);
+        
+        vec3 tailLocal = tailRot * (p - p2 - tailDir * 0.25);
+        float dTail = length(tailLocal.xz) - 0.6;
+        dTail = max(dTail, -(length(tailLocal.xz - vec2(0.0, 0.8)) - 0.9));
+        dTail = max(dTail, udRoundBox(tailLocal, vec3(1.0, 0.005, 1.0), 0.005));
+        res.x = smoothMin(res.x, dTail, 0.1);
+    }
+    
+    return res;
+}
+
+vec2 sdDolphinKinematic2(vec3 p, vec3 vel, vec3 prevVel){
     float lagFactor = 0.4; // adjust this to increase or decrease the lag
     vec3 dirPrev = -normalize(prevVel);
     vec3 dirCurr = -normalize(vel);
@@ -642,7 +1025,7 @@ vec2 fishBound(vec3 p) {
         vec3 vel = boids[0].velocity;
         vec3 prevVel = boids[1].velocity;
         vec3 localP = p - pos;  // translate into boid's space
-        float dolphin_scale = 0.2;
+        float dolphin_scale = 0.3;
         //float fishSDF = dolphin_scale * sdDolphin(localP/dolphin_scale).x;
         
         float fishSDF = dolphin_scale * sdDolphinKinematic(localP/dolphin_scale, vel,  prevVel).x;
@@ -754,20 +1137,20 @@ vec2 terrain(vec3 p) {
 
     // Mountain height: large, blocky terrain from low-freq FBM
     float mountains = pow(fbm(p.xz * 0.07 + vec2(5.0)), 1.8); // steeper features
-    float mountainHeight = 1.4 * mountains;
+    float mountainHeight = 1.4 * mountains + noise(p.xz * 0.5); // add some noise for roughness
 
-    // 🔀 Combine terrain components
+    // Combine terrain components
     float finalHeight =
         macroHeight *
         (0.4 * warpedFbm(p.xz * 1.5 + iTime * 0.02) +  // small detail
          ridgeHeight +
-         mountainHeight);
+         mountainHeight - fbm(p.xz) * 0.002); // large detail
 
     return vec2(baseHeight + finalHeight, 3.0);
 }
 
 vec2 terrainBound(vec3 p) {
-    if (p.y < -0.7) {
+    if (p.y < -0.5) {
         return terrain(p);
     }
     return vec2(1000000., 0.0);
@@ -930,7 +1313,7 @@ vec3 calculateFishColor(vec3 localP, float scale) {
     // ----------------------------------------------
     vec3 bellyColor   = vec3(0.98); // nearly pure white belly.
     vec3 lightOrange  = vec3(1.0, 0.8, 0.6) + lastFishRepeatIndex * 0.5;
-    vec3 darkOrange   = vec3(0.4, 0.1, 0.0) + lastFishRepeatIndex * 0.5;
+    vec3 darkOrange   = vec3(0.4, 0.1, 0.0)* 0.5 + lastFishRepeatIndex * 0.25;
     vec3 orangeColor  = mix(lightOrange, darkOrange, orangeGradient);
 
     // Blend belly and orange colors.
@@ -976,7 +1359,7 @@ vec3 calculateFishColor(vec3 localP, float scale) {
     // ----------------------------------------------
     // 6. Final Output
     // ----------------------------------------------
-    return clamp(baseColor*0.5, 0.0, 1.0);
+    return clamp(baseColor, 0.0, 1.0);
 }
 
 
