@@ -833,6 +833,34 @@ vec3 doLighting2(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2,
     return baseColor * brdf;
 }
 
+// vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
+//     vec3 lightDir = normalize(lightPos); // your global lightPos is fine
+//     vec3 halfVec = normalize(lightDir - viewDir);
+//     vec3 refl = reflect(viewDir, normal);
+
+//     float sky     = clamp(normal.y, 0.0, 1.0);
+//     float ground  = clamp(-normal.y, 0.0, 1.0);
+//     float diff    = max(dot(normal, lightDir), 0.0);
+//     float back    = max(0.3 + 0.7 * dot(normal, -vec3(lightDir.x, 0.0, lightDir.z)), 0.0);
+//     float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
+//     float spec    = pow(max(dot(halfVec, normal), 0.0), 32.0 * gloss);
+//     float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
+
+//     // Optional: real shadow tracing if you have softShadow()
+//     float shadowFactor = softShadow(pos + normal * 0.01, lightDir, 16.0);
+
+//     vec3 brdf = vec3(0.0);
+//     brdf += 4.0 * diff * vec3(1.00, 0.75, 0.55) * shadowFactor;
+//     brdf += 1.0  * sky  * vec3(0.20, 0.45, 0.6) * (0.5 + 0.5 * ao);
+//     brdf += 0.2  * back * vec3(0.40, 0.6, 0.8);
+//     brdf += 1.0  * ground * vec3(0.1, 0.2, 0.15);
+//     brdf += 0.8  * sss  * vec3(0.3, 0.3, 0.35) * gloss * ao;
+//     brdf += 0.3  * spec * vec3(1.2, 1.1, 1.0) * shadowFactor * fresnel * gloss;
+
+//     return baseColor * brdf;
+// }
+
+
 vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
     vec3 lightDir = normalize(lightPos); // your global lightPos is fine
     vec3 halfVec = normalize(lightDir - viewDir);
@@ -846,16 +874,17 @@ vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, 
     float spec    = pow(max(dot(halfVec, normal), 0.0), 32.0 * gloss);
     float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
 
-    // Optional: real shadow tracing if you have softShadow()
+    // Optional: real shadow tracing if you have softshadow()
+    //float shadowFactor = 1.0; // TODO: replace with softshadow() if needed
     float shadowFactor = softShadow(pos + normal * 0.01, lightDir, 16.0);
 
     vec3 brdf = vec3(0.0);
-    brdf += 2.0 * diff * vec3(1.00, 0.75, 0.55) * shadowFactor;
-    brdf += 0.5  * sky  * vec3(0.20, 0.45, 0.6) * (0.5 + 0.5 * ao);
-    brdf += 0.1  * back * vec3(0.40, 0.6, 0.8);
-    brdf += 0.5  * ground * vec3(0.1, 0.2, 0.15);
-    brdf += 0.4  * sss  * vec3(0.3, 0.3, 0.35) * gloss * ao;
-    brdf += 0.15  * spec * vec3(1.2, 1.1, 1.0) * shadowFactor * fresnel * gloss;
+    brdf += 20.0 * diff * vec3(1.00, 0.75, 0.55) * shadowFactor;
+    brdf += 5.0  * sky  * vec3(0.20, 0.45, 0.6) * (0.5 + 0.5 * ao);
+    brdf += 1.0  * back * vec3(0.40, 0.6, 0.8);
+    brdf += 5.0  * ground * vec3(0.1, 0.2, 0.15);
+    brdf += 4.0  * sss  * vec3(0.3, 0.3, 0.35) * gloss * ao;
+    brdf += 1.5  * spec * vec3(1.2, 1.1, 1.0) * shadowFactor * fresnel * gloss;
 
     return baseColor * brdf;
 }
@@ -894,8 +923,8 @@ vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
         
     // }
     float noiseVal = fbm(position.xz * 0.5*position.y);
-        vec3 dirt = vec3(1.0, 0.2, 0.08);
-        vec3 moss = vec3(0.2, 1.0, 0.4);
+        vec3 dirt = vec3(0.6, 0.2, 0.08)* 0.4;
+        vec3 moss = vec3(0.2, 1.0, 0.4) * 0.5;
         return mix(dirt, moss, noiseVal);
 
     return vec3(1.0); // fallback white
@@ -1037,7 +1066,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             
             float caustics = generateCaustics(current_position);
             
-            caustics = pow(caustics, 0.5) * 3.0;   // Optional: adjust caustics intensity
+            caustics = pow(caustics, 0.5);   // Optional: adjust caustics intensity
             //diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
             //vec3 causticsColor = vec3(0.5, 0.8, 1.0); // ocean-like tint
             //color += causticsColor * caustics * 0.6;  // blend based on strength
