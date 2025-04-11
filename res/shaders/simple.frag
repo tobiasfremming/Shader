@@ -283,7 +283,7 @@ float sdEllipsoid( in vec3 p, in vec3 r )
     return k0*(k0-1.0)/k1;
 }
 
-https://www.shadertoy.com/view/4sS3zG
+// https://www.shadertoy.com/view/4sS3zG
 vec2 sd2Segment(vec3 start, vec3 end, vec3 point) {
     vec3 startToPoint = point - start;
     vec3 segmentVector = end - start;
@@ -734,18 +734,8 @@ vec2 terrainBound(vec3 p) {
 }
 
 
-float coralBlob(vec3 p) {
-    p.y += 1.5; // raise from floor
-    float bumpy = length(p) - 0.4 + 0.1 * sin(10.0*p.x + iTime) * sin(10.0*p.y + iTime);
-    return bumpy;
-}
-// ===========================================================================================
-
 
 vec2 map(vec3 p){
-    
-    //return min(fishBound(p), terrain(p));
-    
     //return the vec2 with lowest x value
     vec2 fishSDF = fishBound(p);
     vec2 terrainSDF = terrainBound(p);
@@ -775,61 +765,7 @@ float softShadow(vec3 ro, vec3 rd, float k) {
     return clamp(res, 0.0, 1.0);
 }
 
-vec3 doLighting2(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
-    vec3 lightDir = normalize(lightPos);
-    vec3 halfVec = normalize(lightDir - viewDir);
-    vec3 refl = reflect(-viewDir, normal);
-
-    float sky     = clamp(normal.y, 0.0, 1.0);
-    float ground  = clamp(-normal.y, 0.0, 1.0);
-    float diff    = max(dot(normal, lightDir), 0.0);
-    float back    = max(0.3 + 0.7 * dot(normal, -vec3(lightDir.x, 0.0, lightDir.z)), 0.0);
-    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
-    float spec    = pow(max(dot(halfVec, normal), 0.0), 16.0 * gloss); // reduce gloss sharpness
-    float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
-
-    // -- TUNED --
-    vec3 brdf = vec3(0.0);
-    brdf += 1.5 * diff * vec3(1.0)*shadows;                             // sunlight
-    brdf += 0.8 * sky * vec3(0.3, 0.5, 0.7);                    // sky tint
-    brdf += 0.4 * ground * vec3(0.1, 0.15, 0.1);                // soft green bounce
-    brdf += 0.3 * back * vec3(0.2, 0.2, 0.25);                  // gentle backlighting
-    brdf += 0.6 * sss * vec3(1.0) * gloss * ao;                 // subtle SSS
-    brdf += 0.5 * spec * vec3(1.0) * fresnel * gloss * ao * shadows;      // specular
-    // Optional soft reflection boost
-    brdf += 0.25 * pow(max(dot(refl, lightDir), 0.0), 4.0) * gloss2;
-
-    return baseColor * brdf;
-}
-
-// vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
-//     vec3 lightDir = normalize(lightPos); // your global lightPos is fine
-//     vec3 halfVec = normalize(lightDir - viewDir);
-//     vec3 refl = reflect(viewDir, normal);
-
-//     float sky     = clamp(normal.y, 0.0, 1.0);
-//     float ground  = clamp(-normal.y, 0.0, 1.0);
-//     float diff    = max(dot(normal, lightDir), 0.0);
-//     float back    = max(0.3 + 0.7 * dot(normal, -vec3(lightDir.x, 0.0, lightDir.z)), 0.0);
-//     float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
-//     float spec    = pow(max(dot(halfVec, normal), 0.0), 32.0 * gloss);
-//     float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
-
-//     // Optional: real shadow tracing if you have softShadow()
-//     float shadowFactor = softShadow(pos + normal * 0.01, lightDir, 16.0);
-
-//     vec3 brdf = vec3(0.0);
-//     brdf += 4.0 * diff * vec3(1.00, 0.75, 0.55) * shadowFactor;
-//     brdf += 1.0  * sky  * vec3(0.20, 0.45, 0.6) * (0.5 + 0.5 * ao);
-//     brdf += 0.2  * back * vec3(0.40, 0.6, 0.8);
-//     brdf += 1.0  * ground * vec3(0.1, 0.2, 0.15);
-//     brdf += 0.8  * sss  * vec3(0.3, 0.3, 0.35) * gloss * ao;
-//     brdf += 0.3  * spec * vec3(1.2, 1.1, 1.0) * shadowFactor * fresnel * gloss;
-
-//     return baseColor * brdf;
-// }
-
-
+// took some inspiration from https://www.shadertoy.com/view/4sS3zG
 vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
     vec3 lightDir = normalize(lightPos); // your global lightPos is fine
     vec3 halfVec = normalize(lightDir - viewDir);
@@ -842,10 +778,6 @@ vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, 
     float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
     float spec    = pow(max(dot(halfVec, normal), 0.0), 32.0 * gloss);
     float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
-
-
-    // Optional: real shadow tracing if you have softshadow()
-    //float shadowFactor = 1.0; // TODO: replace with softshadow() if needed
     float shadowFactor = softShadow(pos + normal * 0.01, lightDir, 16.0);
 
     vec3 brdf = vec3(0.0);
@@ -863,31 +795,23 @@ vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, 
 
 
 vec3 calculateFishColor(vec3 localP, float scale) {
-    // ----------------------------------------------
-    // 1. Normalize the vertical coordinate based on fish bounds.
-    // ----------------------------------------------
-    // Adjust these values as needed to match your fish model's vertical extent.
+
     localP = animateFish(localP);
     float minY = -0.05 * scale; // lower bound of fish geometry
     float maxY =  0.05 * scale; // upper bound of fish geometry
     float normY = clamp((localP.y - minY) / (maxY - minY), 0.0, 1.0);
 
     // Define thresholds in the normalized [0, 1] range.
-    float bellyThreshold = 0.3; // below this, the fish is completely belly (white)
+    float bellyThreshold = 0.4; // below this, the fish is completely belly (white)
     float backThreshold  = 0.8; // above this, the fish's back is fully orange (with darker orange near the spine)
 
-    // ----------------------------------------------
-    // 2. Compute the blend factors
-    // ----------------------------------------------
     // Gradually blend from pure belly to orange.
     float bellyTop = -0.5;
     float bellyGradient = smoothstep(0.0, bellyThreshold, normY);
     // For the orange gradient, let the color darken from light to dark orange.
     float orangeGradient = smoothstep(bellyThreshold, backThreshold, normY);
 
-    // ----------------------------------------------
-    // 3. Define colors with an offset for variety per fish.
-    // ----------------------------------------------
+
     vec3 bellyColor   = vec3(0.98); // nearly pure white belly.
     vec3 lightOrange  = vec3(1.0, 0.8, 0.6) + lastFishRepeatIndex * 0.5;
     vec3 darkOrange   = vec3(0.4, 0.1, 0.0)* 0.5 + lastFishRepeatIndex * 0.25;
@@ -896,22 +820,8 @@ vec3 calculateFishColor(vec3 localP, float scale) {
     // Blend belly and orange colors.
     vec3 baseColor = mix(bellyColor, orangeColor, bellyGradient);
 
-    // ----------------------------------------------
-    // 4. Stripe Pattern on the Back
-    // ----------------------------------------------
-    // float stripeStrength = smoothstep(bellyThreshold, bellyThreshold + 0.1, normY);
-    // float stripeFreq = 100.0;
-    // float stripePattern = sin(localP.x * stripeFreq + localP.z);
-    // float stripeMask = smoothstep(0.2, 0.15, abs(stripePattern));
-    // vec3 stripeColor = vec3(0.0);  // black stripes.
-    // baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
 
-    // ----------------------------------------------
-// Organic Stripe Pattern on the Back
-// ----------------------------------------------
-// Only activate stripes on the back (orange) portion:
     float stripeStrength = smoothstep(bellyTop, bellyTop + 0.1 * scale, localP.y);
-    // Adjust the frequency of the base stripes
     float stripeFreq = 100.0;
     // Use fbm to create a small warping offset; scaling it to keep the displacement subtle.
     float warp = fbm(localP.xz * 10.0) * 0.3;
@@ -925,108 +835,23 @@ vec3 calculateFishColor(vec3 localP, float scale) {
     baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
 
 
-    // ----------------------------------------------
-    // 5. Spot Pattern (Additional Color Variant)
-    // ----------------------------------------------
     float spotNoise = fbm(localP.xz * 10.0);
     float spotMask = smoothstep(0.8, 0.85, spotNoise);
     vec3 spotColor = vec3(0.0, 0.0, 0.0);
     baseColor = mix(baseColor, spotColor, spotMask * 0.5);
 
-    // ----------------------------------------------
-    // 6. Final Output
-    // ----------------------------------------------
     return clamp(baseColor, 0.0, 1.0);
 }
 
 
 
-vec3 calculateFishColor5(vec3 localP, float scale) {
-    // ---------------------------------------------------------
-    // 1. Vertical Belly-to-Back Segmentation (Abrupt Transition)
-    // ---------------------------------------------------------
-    // Define a threshold that separates the belly (white) from the back (orange).
-    scale = 1.0;
-    float bellyThreshold = 0.0 * scale;
-    // Using step to produce an abrupt switch: 0.0 for belly; 1.0 for back.
-    float backFactor = smoothstep(bellyThreshold, localP.y, 0.5);
 
-    // ----------------------------------------------
-    // 2. Orange Gradient on the Back (Dark to Light)
-    // ----------------------------------------------
-    // For the back region, we want an orange color that goes from dark orange 
-    // (at lower back) to a lighter orange (almost white) as we move upward.
-    // Use a smooth gradient only within the back region.
-    float orangeGradient = smoothstep(bellyThreshold, 0.5 * scale, localP.y);
-    vec3 darkOrange = vec3(0.4, 0.1, 0.0) + lastFishRepeatIndex* 0.2;   // Darker orange hue.
-    vec3 lightOrange = vec3(1.0, 0.8, 0.6) + lastFishRepeatIndex * 0.2;    // Lighter orange hue near white.
-    vec3 orangeColor = mix(darkOrange, lightOrange, orangeGradient);
-
-    // Define the belly color (pure white).
-    vec3 bellyColor = vec3(0.98);
-
-    // Combine based on the vertical region.
-    // Use backFactor (0 or 1) to make the switch abrupt between belly and back.
-    vec3 baseColor = mix(bellyColor, orangeColor, backFactor);
-
-    // ----------------------------------------------
-    // 3. Stripe Pattern (Maintained on the Back)
-    // ----------------------------------------------
-    // Only apply stripes when in the back (orange) region.
-    float stripeStrength = backFactor;
-    float stripeFreq = 100.0;
-    float stripePattern = sin(localP.x * stripeFreq + localP.z);
-    // Using smoothstep for sharp transitions in the stripe mask.
-    float stripeMask = smoothstep(0.2, 0.15, abs(stripePattern));
-    vec3 stripeColor = vec3(0.0);  // Black stripes.
-    // Blend the stripes into the base color.
-    baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
-
-    // ---------------------------------------------------------
-    // 4. Spot Pattern (Additional Color Variant)
-    // ---------------------------------------------------------
-    // Introduce small spots by using an independent noise function.
-    // Increase the frequency to get sparse, random spots.
-    float spotNoise = fbm(localP.xz * 10.0);
-    // A high threshold ensures that only a few high noise values produce spots.
-    float spotMask = smoothstep(0.8, 0.85, spotNoise);
-    // Choose a spot color that is a bit darker than dark orange.
-    vec3 spotColor = vec3(0.7, 0.2, 0.0);
-    // Mix in the spot color slightly (multiplying by a factor to keep them subtle).
-    baseColor = mix(baseColor, spotColor, spotMask * 0.5);
-
-    // ---------------------------------------------------------
-    // 5. Final Output
-    // ---------------------------------------------------------
-    return clamp(baseColor, 0.0, 1.0);
-}
-
-
-
-vec3 getObjectColor2(float renderIndex, vec3 position, vec3 normal) {
-    // Lighting directions
-    vec3 up = vec3(0.0, 1.0, 0.0);
-    float facingUp = dot(normal, up);
-
-    
-    float noiseVal = fbm(position.xz * 0.9*position.y);
-    
-        vec3 dirt = vec3(0.5, 0.2, 0.08)* 0.3;
-        vec3 moss = vec3(0.2, 0.8, 0.4) * 0.4;
-        //return mix(dirt, moss, noiseVal);
-        float threshold = 0.4;
-        float mixFactor = smoothstep(threshold - 0.1, threshold + 0.1, noiseVal);
-        return mix(dirt, moss, mixFactor);
-
-    return vec3(1.0); // fallback white
-}
 
 vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
     // Compute directional lighting influence (if needed later)
     vec3 up = vec3(0.0, 1.0, 0.0);
     float facingUp = dot(normal, up);
 
-    // Increase noise frequency for more varied tiling
     float noiseVal = fbm(position.xz * 1.5);
 
     // Define a set of colors for a tropical ocean scene
@@ -1078,13 +903,12 @@ vec3 calculate_normal(in vec3 p)
     return normalize(normal);
 }
 
-
+// https://www.shadertoy.com/view/XdyfR1 Straight up a shameful copy
 float GodRays(  in vec2 ndc, in vec2 uv) {
     vec2 godRayOrigin = ndc + vec2(-1.15, -1.25);
     float rayInputFunc = atan(godRayOrigin.y, godRayOrigin.x) * 0.63661977236; // that's 2/pi
     float light = (sin(rayInputFunc * GOD_RAY_FREQUENCY + iTime * -2.25) * 0.5 + 0.5);
     light = 0.5 * (light + (sin(rayInputFunc * 13.0 + iTime) * 0.5 + 0.5));
-    //light *= (sin(rayUVFunc * 8.0 + -iTime * 0.25) * 0.5 + 0.5);
     light *= pow(clamp(dot(normalize(-godRayOrigin), normalize(ndc - godRayOrigin)), 0.0, 1.0), 2.5);
     light *= pow(uv.y, GOD_RAY_LENGTH);
     light = pow(light, 1.75);
@@ -1093,7 +917,7 @@ float GodRays(  in vec2 ndc, in vec2 uv) {
 
 float causticsPattern(vec3 worldPos) {
     float time = iTime * 0.5 + 23.0;
-    vec2 uv = worldPos.xz * 0.5; // Change scale as needed
+    vec2 uv = worldPos.xz * 0.5; 
     vec2 p = mod(uv * TAU, TAU) - 250.0;
     vec2 i = p;
 
@@ -1116,6 +940,7 @@ float causticsPattern(vec3 worldPos) {
     c = 1.17 - pow(c, 1.4);
     return clamp(pow(abs(c), 8.0), 0.0, 1.0);
 }
+
 
 float generateCaustics(vec3 position) {
     vec2 coord = position.xz * 0.5;
@@ -1146,10 +971,6 @@ float generateCaustics(vec3 position) {
     float bright = 1.15 - pow(accum, 1.45);
     return clamp(pow(abs(bright), 7.5), 0.0, 1.0);
 }
-
-
-
-
 
 
 float drawParticle(vec2 uv, vec2 center, float radius) {
@@ -1195,21 +1016,15 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             color = baseColor;
             
             vec3 direction_to_light = normalize(current_position - lightPosition);
-            
-            //float diffuse_intensity = max(0.01, dot(normal, direction_to_light));
-            
+                        
             float caustics = generateCaustics(current_position);
             
-            caustics = pow(caustics, 0.5);   // Optional: adjust caustics intensity
+            caustics = pow(caustics, 0.5);  
         
-            //float normalFactor = clamp(dot(normal, lightDirection), 0.0, 1.0);
             float normalFactor = clamp((dot(normal, vec3(0.0, 1.0, 0.0)) + 0.3) / 1.3, 0.0, 1.0);
             color *= caustics* normalFactor;
-            //specular
-            //vec3 viewDir = normalize(current_position - ro);
+     
             vec3 viewDir = normalize(ro - current_position);
-            // vec3 reflectDir = reflect(direction_to_light, normal);
-            // float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
 
             float gloss = 1.5;     // Scene shininess
             float gloss2 = 10.4;     // Optional reflection boost
@@ -1221,28 +1036,16 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             color = doLighting(current_position, normal, viewDir, gloss, gloss2, shadows, color, ao);
 
                         
-            // // Vlumetric fog (approximate) %Report
-            float boolf = 1.0; // turn effect on or off
-
-            
-
+            // // Vlumetric fog (approximate) 
             if (renderIndex == 3.0) {
                 
                 float godrays = GodRays(uv, uv2);
                 vec3 lightColor = mix(vec3(0.5, 1.0, 0.8), vec3(0.55, 0.55, 0.95) * 0.75, 1.0 - uv.y);
-                background = mix(background, lightColor, (godrays + 0.05)/1.05);
-                //color *= (diffuse_intensity + spec);
-
-                // Final fog blend based on depth
-                float fogAmount = 1.0 - exp(-pow(distanceTraveled * 0.3, 1.2));
-                color = mix(color, background, fogAmount);
-                
+                background = mix(background, lightColor, (godrays + 0.05)/1.05);  
             }
-            else {
-                //color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
-                color = mix(color, background, boolf * clamp(pow(distanceTraveled/4., 0.7), 0.0, 1.0));
-
-            }
+            
+            float fogAmount = 1.0 - exp(-pow(distanceTraveled * 0.3, 1.2));
+            color = mix(color, background, fogAmount);
             return vec4(color, 1.);
             
         }
@@ -1254,37 +1057,23 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     vec3 lightColor = mix(vec3(0.5, 1.0, 0.8), vec3(0.55, 0.55, 0.95) * 0.75, 1.0 - uv.y);
     
     // Blend the godrays (scattered light) with the scene color.
-    // Adjust the blend factor if necessary.
     background = mix(background, lightColor, (godrays + 0.05)/1.05);
 
-    
-
-    
     vec3 finalColor = background;
     finalColor = clamp(finalColor, 0.0, 1.0);
-    
-
-    
-    //return vec4(0.4, 0.6, 0.7, 1.);
+ 
     return vec4(finalColor,1.);
-
 
 }
 
 
-
-
-
 void main()
 {
-
     vec2 uv = (2.0 * gl_FragCoord.xy - iResolution.xy) / iResolution.y;
     fishTime = 0.6 + 2.0*iTime;
     
-    // =======================================================
-    // mouse
-    // =======================================================
 
+    // Used mouse in shadertoy, do not to it anymore, but too lazy to change names
     vec3 iMouse = vec3(0.0, 0.0, 0.0);
     vec2 mouse = (iMouse.z > 0.0) ? iMouse.xy : 0.5 * iResolution.xy; 
     
@@ -1315,10 +1104,7 @@ void main()
     // Camera position
     vec3 sway = vec3(1.0 * cos(iTime * 0.2), 0.02 * sin(iTime* 0.2), 0.001 * cos(iTime* 0.2));
     vec3 ro = target + sway + radius * lookDir;
-    //vec3 ro = target + radius * lookDir;
-    // TODO: add camera sway
-    //vec3 ro =  target + radius * lookDir+ vec3(0.0, 0.2*sin(iTime), 0.1*cos(iTime));
-
+    
     // Forward = direction from camera to target
     vec3 forward = normalize(target - ro);
 
