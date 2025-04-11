@@ -70,7 +70,7 @@ sf::Sound* sound;
 
 CommandLineOptions options;
 
-bool hasStarted        = false;
+bool hasStarted        = true;
 bool hasLost           = false;
 bool jumpedToNextFrame = false;
 bool isPaused          = false;

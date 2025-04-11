@@ -452,14 +452,18 @@ mat3 rotationMatrix(vec3 axis, float angle) {
 }
 
 vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
-    // Improved direction blending with smoother transitions
-    float lagFactor = 0.4;
-    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : vec3(0.0, 0.0, -1.0);
-    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : vec3(0.0, 0.0, -1.0);
     
-    // Use smootherstep for blending to avoid sharp transitions
+    float lagFactor = 0.4;
+    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : normalize(vel);
+    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : dirCurr;
+    if (dot(dirPrev, dirCurr) < 0.0) {
+        dirPrev = -dirPrev;
+    }
+    
+    //Use smootherstep for blending to avoid sharp transitions
     float blendFactor = smoothstep(0.0, 0.5, dot(dirPrev, dirCurr));
     vec3 blendedDir = normalize(mix(dirPrev, dirCurr, mix(lagFactor, 1.0, 1.0-blendFactor)));
+    
     
     vec2 res = vec2(1000.0, 0.0);
     vec3 segmentStart = anima2();
@@ -506,7 +510,7 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
     }
     ccp = midpoint;
     
-    // Body SDF (unchanged but more robust)
+    // Body SDF
     float h = res.y;
     float ra = 0.05 + h * (1.0 - h) * (1.0 - h) * 2.7;
     ra += 7.0 * max(0.0, h - 0.04) * exp(-30.0 * max(0.0, h - 0.04)) * smoothstep(-0.1, 0.1, p.y - midpoint.y);
@@ -519,7 +523,8 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
     // Improved fin/tail calculations with stability checks
     if(length(d3) > 0.0) {
         // Blend the fin direction with the overall movement direction
-        vec3 finDir = normalize(mix(blendedDir, normalize(d3), lagFactor));
+        //vec3 finDir = normalize(mix(blendedDir, normalize(d3), lagFactor));
+        vec3 finDir = normalize(p3);
         
         // Create rotation matrix with proper up vector handling
         vec3 upRef = abs(dot(finDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
@@ -540,7 +545,8 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
     
     if(length(d1) > 0.0) {
         // Blend the fin direction with the overall movement direction
-        vec3 finDir2 = normalize(mix(blendedDir, normalize(d1), lagFactor));
+        //vec3 finDir2 = normalize(mix(blendedDir, normalize(d1), lagFactor));
+        vec3 finDir2 = normalize(p1);
         
         // Create rotation matrix with proper up vector handling
         vec3 upRefFin2 = abs(dot(finDir2, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
@@ -586,7 +592,8 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
     return res;
 }
 
-vec2 sdDolphinKinematicBESTYET(vec3 p, vec3 vel, vec3 prevVel) {
+// Improved kinematics, but cant figure out the fin placement
+vec2 sdDolphinKinematicNEWAPPROACH(vec3 p, vec3 vel, vec3 prevVel) {
     // Direction blending (unchanged)
     float lagFactor = 0.4;
     vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : vec3(0.0, 0.0, -1.0);
