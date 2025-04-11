@@ -10,7 +10,7 @@ layout(std430, binding = 0) buffer BoidBuffer {
     Boid boids[];
 };
 
-const int NUM_BOIDS = 17;
+const int NUM_BOIDS = 13;
 
 const float ALIGNMENT_RADIUS = 0.7;
 const float COHESION_RADIUS = 0.9;
@@ -104,32 +104,45 @@ vec3 computePredatorChase(vec3 pos) {
     return normalize(target - pos);
 }
 vec3 computeBoundAvoidance(vec3 pos) {
-    vec3 floorForce = vec3(0.0);
-    vec3 ceilForce = vec3(0.0);
-    vec3 cameraForce = vec3(0.0);
+    vec3 avoidanceForce = vec3(0.0);
+    
+    // Floor avoidance (Y_MIN)
     float distToFloor = pos.y - TERRAIN_Y_MIN;
     if (distToFloor < FLOOR_AVOIDANCE_RANGE) {
-        float push = (1.0 - distToFloor / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
-        floorForce = vec3(0.0, push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
-        
+        float pushStrength = (1.0 - distToFloor / FLOOR_AVOIDANCE_RANGE);
+        avoidanceForce.y += pushStrength * FLOOR_AVOIDANCE_STRENGTH;
     }
-
-    float distToCeil = pos.y - TERRAIN_Y_MAX;
+    
+    // Ceiling avoidance (Y_MAX)
+    float distToCeil = TERRAIN_Y_MAX - pos.y; // Note: This is now correct distance calculation
     if (distToCeil < FLOOR_AVOIDANCE_RANGE) {
-        float push = (1.0 - distToCeil / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
-        ceilForce = vec3(0.0, -push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
-        
+        float pushStrength = (1.0 - distToCeil / FLOOR_AVOIDANCE_RANGE);
+        avoidanceForce.y -= pushStrength * FLOOR_AVOIDANCE_STRENGTH;
     }
-
-    float distTOCamera = pos.x - CAMERA_X_MIN;
-    if (distTOCamera < FLOOR_AVOIDANCE_RANGE) {
-        float push = (1.0 - distTOCamera / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
-        cameraForce = vec3(0.0, 0.0, push * FLOOR_AVOIDANCE_STRENGTH);
-        cameraForce;
+    
+    // Camera plane avoidance (X_MIN)
+    float distToCameraPlane = pos.x - CAMERA_X_MIN;
+    if (distToCameraPlane < FLOOR_AVOIDANCE_RANGE) {
+        float pushStrength = (1.0 - distToCameraPlane / FLOOR_AVOIDANCE_RANGE);
+        avoidanceForce.x += pushStrength * FLOOR_AVOIDANCE_STRENGTH;
     }
-
-    return floorForce + cameraForce + ceilForce;
-
+    
+    // Additional boundary checks for other walls
+    const float WORLD_BOUNDARY = 2.5; // Match your wrap bounds
+    float distToRightWall = WORLD_BOUNDARY - abs(pos.x);
+    float distToFrontBackWall = WORLD_BOUNDARY - abs(pos.z);
+    
+    if (distToRightWall < FLOOR_AVOIDANCE_RANGE) {
+        float pushStrength = (1.0 - distToRightWall / FLOOR_AVOIDANCE_RANGE);
+        avoidanceForce.x -= sign(pos.x) * pushStrength * FLOOR_AVOIDANCE_STRENGTH;
+    }
+    
+    if (distToFrontBackWall < FLOOR_AVOIDANCE_RANGE) {
+        float pushStrength = (1.0 - distToFrontBackWall / FLOOR_AVOIDANCE_RANGE);
+        avoidanceForce.z -= sign(pos.z) * pushStrength * FLOOR_AVOIDANCE_STRENGTH;
+    }
+    
+    return avoidanceForce;
 }
 
 vec3 safeNormalize(vec3 v, vec3 fallback) {

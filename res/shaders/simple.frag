@@ -1,5 +1,5 @@
 #version 430 core
-#define NUM_BOIDS 17
+#define NUM_BOIDS 13
 #define KINEMATICS_INDEX 20
 #define NUMI 10
 #define NUMF 10.0
@@ -986,7 +986,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     float radius = 1000000.0;
     const float MAXIMUM_TRACE_DISTANCE = 1000.0;
     vec3 lightPosition = lightPos;
-    vec3 background = mix(vec3(0.1, 0.3, 0.5), vec3(0.788, 0.956, 1.0), uv.y*0.5);
+    vec3 background = mix(vec3(0.1, 0.3, 0.5)*0.8, vec3(0.788, 0.956, 1.0), uv.y*0.5);
     
     while(distanceTraveled < MAXIMUM_TRACE_DISTANCE){
     
