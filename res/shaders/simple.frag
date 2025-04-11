@@ -699,7 +699,6 @@ float warpedFbm(vec2 p) {
     return fbm(p + 2.0 * q);
 }
 
-
 vec2 terrain(vec3 p) {
     float baseHeight = p.y + 1.5;
 
@@ -727,7 +726,7 @@ vec2 terrain(vec3 p) {
 }
 
 vec2 terrainBound(vec3 p) {
-    if (p.y < -0.5) {
+    if (p.y < -0.3) {
         return terrain(p);
     }
     return vec2(1000000., 0.0);
@@ -978,6 +977,7 @@ float drawParticle(vec2 uv, vec2 center, float radius) {
     return exp(-pow(d / radius, 2.0) * 8.0); // soft glow falloff
 }
 
+
 vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     
     int numSteps = 64;
@@ -1034,17 +1034,17 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             //float shadowFactor = softShadow(current_position + normal * 0.01, lightDirection, 16.0);
 
             color = doLighting(current_position, normal, viewDir, gloss, gloss2, shadows, color, ao);
-
-                        
+            float fogDistance = 0.4;
             // // Vlumetric fog (approximate) 
             if (renderIndex == 3.0) {
                 
                 float godrays = GodRays(uv, uv2);
                 vec3 lightColor = mix(vec3(0.5, 1.0, 0.8), vec3(0.55, 0.55, 0.95) * 0.75, 1.0 - uv.y);
                 background = mix(background, lightColor, (godrays + 0.05)/1.05);  
+                fogDistance = 0.3;
             }
-            
-            float fogAmount = 1.0 - exp(-pow(distanceTraveled * 0.3, 1.2));
+            float fogAmount = 1.0 - exp(-pow(distanceTraveled * fogDistance, 1.1));
+
             color = mix(color, background, fogAmount);
             return vec4(color, 1.);
             
@@ -1117,8 +1117,8 @@ void main()
 
     vec4 result = rayMarch(ro, rd, uv, gl_FragCoord.xy/iResolution.xy);
     
-    vec3 particleColor1 = vec3(0.3, 0.45, 0.35); // deeper green-brown
-    vec3 particleColor2 = vec3(0.6, 0.2, 0.1);   // slightly lighter variation
+    vec3 particleColor1 = vec3(0.2, 0.45, 0.1); // deeper green-brown
+    vec3 particleColor2 = -vec3(-0.2, 0.4, 0.4);   // slightly lighter variation
 
     float particleOverlay = 0.0;
     vec3 particles = vec3(0.0);
@@ -1155,3 +1155,4 @@ void main()
     fragColor = vec4(result + vec4(particles, 0.0));
 
 }
+
