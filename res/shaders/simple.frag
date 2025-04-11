@@ -26,24 +26,6 @@ layout(std430, binding = 0) buffer BoidBuffer {
 
 out vec4 fragColor;
 
-// Global values for calculating color
-vec3 lastFishLocalP;
-vec3 lastFishRepeatIndex;
-float lastFishScale;
-
-vec3 lastDolphinLocalP;
-float lastDolphinSegmentRatio; // for longitudinal variation (0 at head, 1 at tail)
-
-// candidate
-vec3 lastFishLocalPCandidate;
-vec3 lastFishRepeatIndexCandidate;
-float lastFishScaleCandidate;
-
-vec3 lastDolphinLocalPCandidate;
-float lastDolphinSegmentRatioCandidate; // for longitudinal variation (0 at head, 1 at tail)
-
-
-
 
 vec3 lightPos = vec3(-2.0, -4.0, -2.0);
 
@@ -252,97 +234,6 @@ vec3 hash3(vec3 p) {
     p += dot(p, p.yzx + 33.33);
     return fract((p.xxy + p.yzz) * p.zyx);
 }
-
-vec3 calculateFishColor(vec3 localP, float scale) {
-    // -------------------------------
-    // 1. Vertical Belly-to-Back Gradient
-    // -------------------------------
-    // Compute a blend factor based on the local Y coordinate.
-    // For localP.y below -0.1*scale, the fish is fully belly (silver).
-    // For localP.y above 0.05*scale, it’s fully back (blue).
-    float bellyFactor = smoothstep(-0.1 * scale, 0.05 * scale, localP.y);
-
-    // Define the colors.
-    vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
-    // Adjust the back color to be darker blue
-    vec3 backColor  = vec3(0.9, 0.5, 0.1);    // Dark blue (back)
-
-    // Mix the colors with bellyFactor.
-    // When bellyFactor is 0, you get bellyColor; when it's 1, you get backColor.
-    vec3 baseColor = mix(bellyColor, backColor, bellyFactor);
-
-    // -------------------------------
-    // 2. Stripe Pattern (Tiger Stripes on the Blue part)
-    // -------------------------------
-    // We want stripes to appear only on the blue (back) part.
-    // Thus, we define a stripe strength that activates only when bellyFactor is high.
-    float stripeStrength = smoothstep(0.1, 0.5, bellyFactor);
-    stripeStrength = 1.0;
-    
-    // Compute a stripe pattern based on the horizontal axis.  
-    // The high frequency creates many stripes.
-    float stripeFreq = 400.0;
-    float stripePattern = sin(localP.x * stripeFreq + localP.z * 1.0);
-    
-    // Map the absolute stripe pattern to a sharp mask.
-    // Using smoothstep with an inverted range gives sharp transitions.
-    float stripeMask = smoothstep(0.2, 1.5, abs(stripePattern));
-    
-    // The stripe color is black.
-    vec3 stripeColor = vec3(0.0);
-
-    // Mix the base color with black using the stripe mask * strength.
-    // In areas where stripeStrength is 0 (belly), the stripes are not applied.
-    baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
-    
-
-    // Return the color clamped to valid RGB range
-    return clamp(baseColor, 0.0, 1.0);
-}
-
-
-
-vec3 calculateFishColor3(vec3 localP, float scale) {
-    // -------------------------------
-    // 1. Vertical Belly-to-Back Gradient
-    // -------------------------------
-    // Normalize the Y coordinate relative to fish size
-    float normalizedY = localP.y / scale;
-    
-    // Compute belly factor (1.0 at bottom, 0.0 at top)
-    // Adjust these thresholds to control where the transition happens
-    float bellyFactor = smoothstep(0.05, -0.1, normalizedY); // Inverted for proper blending
-    
-    // Define colors
-    vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
-    vec3 backColor = vec3(0.00, 0.0, 0.1);     // Dark blue (back)
-    
-    // Base color mix
-    vec3 baseColor = mix(backColor, bellyColor, bellyFactor);
-    
-    // -------------------------------
-    // 2. Stripe Pattern (only on back)
-    // -------------------------------
-    // Only apply stripes where bellyFactor is low (on the back)
-    float stripeStrength = 1.0 - smoothstep(0.1, 0.6, bellyFactor);
-    
-    // Create stripe pattern based on horizontal position
-    float stripeFreq = 100.0; // Reduced frequency for more visible stripes
-    float stripePattern = sin(localP.x * stripeFreq * 2.0) * 
-                         sin(localP.z * stripeFreq * 0.9);
-    
-    // Sharp stripe mask
-    float stripeMask = step( 0.9, abs(stripePattern));
-    
-    // Apply stripes only to the back portion
-    baseColor = mix(baseColor, vec3(0.0), stripeMask * stripeStrength);
-    
-    return clamp(baseColor, 0.0, 1.0);
-}
-
-
-
-
 
 
 vec3 calculateFishColor2(vec3 localP, float scale) {
