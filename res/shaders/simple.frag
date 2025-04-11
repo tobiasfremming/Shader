@@ -1,5 +1,5 @@
 #version 430 core
-#define NUM_BOIDS 20
+#define NUM_BOIDS 17
 #define KINEMATICS_INDEX 20
 #define NUMI 10
 #define NUMF 10.0
@@ -54,6 +54,24 @@ float isJump2;
 vec3 ccd, ccp;
 int currentIndex;
 vec3 repeatIndex;
+
+// Global values for calculating color
+vec3 lastFishLocalP;
+vec3 lastFishRepeatIndex;
+float lastFishScale;
+
+vec3 lastDolphinLocalP;
+float lastDolphinSegmentRatio; // for longitudinal variation (0 at head, 1 at tail)
+
+// candidate
+vec3 lastFishLocalPCandidate;
+vec3 lastFishRepeatIndexCandidate;
+float lastFishScaleCandidate;
+
+vec3 lastDolphinLocalPCandidate;
+float lastDolphinSegmentRatioCandidate; // for longitudinal variation (0 at head, 1 at tail)
+
+
 
 float dot2( in vec2 v ) { return dot(v,v); }
 float dot2( in vec3 v ) { return dot(v,v); }
@@ -284,6 +302,95 @@ vec3 calculateFishColor(vec3 localP, float scale) {
 
 
 
+vec3 calculateFishColor3(vec3 localP, float scale) {
+    // -------------------------------
+    // 1. Vertical Belly-to-Back Gradient
+    // -------------------------------
+    // Normalize the Y coordinate relative to fish size
+    float normalizedY = localP.y / scale;
+    
+    // Compute belly factor (1.0 at bottom, 0.0 at top)
+    // Adjust these thresholds to control where the transition happens
+    float bellyFactor = smoothstep(0.05, -0.1, normalizedY); // Inverted for proper blending
+    
+    // Define colors
+    vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
+    vec3 backColor = vec3(0.00, 0.0, 0.1);     // Dark blue (back)
+    
+    // Base color mix
+    vec3 baseColor = mix(backColor, bellyColor, bellyFactor);
+    
+    // -------------------------------
+    // 2. Stripe Pattern (only on back)
+    // -------------------------------
+    // Only apply stripes where bellyFactor is low (on the back)
+    float stripeStrength = 1.0 - smoothstep(0.1, 0.6, bellyFactor);
+    
+    // Create stripe pattern based on horizontal position
+    float stripeFreq = 100.0; // Reduced frequency for more visible stripes
+    float stripePattern = sin(localP.x * stripeFreq * 2.0) * 
+                         sin(localP.z * stripeFreq * 0.9);
+    
+    // Sharp stripe mask
+    float stripeMask = step( 0.9, abs(stripePattern));
+    
+    // Apply stripes only to the back portion
+    baseColor = mix(baseColor, vec3(0.0), stripeMask * stripeStrength);
+    
+    return clamp(baseColor, 0.0, 1.0);
+}
+
+
+
+
+
+
+vec3 calculateFishColor2(vec3 localP, float scale) {
+    // -------------------------------
+    // 1. Vertical Belly-to-Back Gradient
+    // -------------------------------
+    // Compute a blend factor based on the local Y coordinate.
+    // For localP.y below -0.1*scale, the fish is fully belly (silver).
+    // For localP.y above 0.05*scale, it’s fully back (blue).
+    float bellyFactor = smoothstep(-0.1 * scale, 0.05 * scale, localP.y);
+
+    // Define the colors.
+    vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
+    // Adjust the back color to be darker blue
+    vec3 backColor  = vec3(0.00, 0.0, 0.1);    // Dark blue (back)
+
+    // Mix the colors with bellyFactor.
+    // When bellyFactor is 0, you get bellyColor; when it's 1, you get backColor.
+    vec3 baseColor = mix(bellyColor, backColor, 0.8);
+
+    // -------------------------------
+    // 2. Stripe Pattern (Tiger Stripes on the Blue part)
+    // -------------------------------
+    // We want stripes to appear only on the blue (back) part.
+    // Thus, we define a stripe strength that activates only when bellyFactor is high.
+    float stripeStrength = smoothstep(0.1, 0.5, bellyFactor);
+    
+    // Compute a stripe pattern based on the horizontal axis.  
+    // The high frequency creates many stripes.
+    float stripeFreq = 200.0;
+    float stripePattern = sin(localP.x * stripeFreq + localP.z * 1.0);
+    
+    // Map the absolute stripe pattern to a sharp mask.
+    // Using smoothstep with an inverted range gives sharp transitions.
+    float stripeMask = smoothstep(0.2, 0.15, abs(stripePattern));
+    
+    // The stripe color is black.
+    vec3 stripeColor = vec3(0.0);
+
+    // Mix the base color with black using the stripe mask * strength.
+    // In areas where stripeStrength is 0 (belly), the stripes are not applied.
+    baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
+    
+
+    // Return the color clamped to valid RGB range
+    return clamp(baseColor, 0.0, 1.0);
+}
+
 
 // Limited Domain Repetition in 3D
 // p   : the point in space to evaluate
@@ -337,6 +444,27 @@ float limitedDomainRepeatSDF(vec3 p, float s, vec3 lim, vec3 vel) {
 
 // DOLPHIN ===================================================================================
 
+vec3 calculateDolphinColor(vec3 localP, float spineRatio) {
+    return vec3(0.7, 0.6, 0.8); // Placeholder for dolphin color
+    // Vertical gradient (Y axis): belly to top
+    float bellyBlend = smoothstep(-0.1, 0.05, localP.y);
+
+    vec3 belly = vec3(0.85, 0.85, 0.88);   // silvery gray
+    vec3 back  = vec3(0.1, 0.1, 0.15);     // dark steel blue
+    vec3 bodyColor = mix(belly, back, bellyBlend);
+
+    // Optional: dorsal stripe?
+    float dorsalStripe = smoothstep(0.0, 0.02, abs(localP.z));
+    bodyColor = mix(bodyColor, bodyColor * 0.7, dorsalStripe);
+
+    // Optional: darken tail slightly
+    float tailDarken = smoothstep(0.6, 1.0, spineRatio);
+    bodyColor *= mix(1.0, 0.75, tailDarken);
+
+    return bodyColor;
+}
+
+
 float sdEllipsoid( in vec3 p, in vec3 r ) 
 {
     float k0 = length(p/r);
@@ -388,7 +516,397 @@ mat3 rotationMatrix(vec3 axis, float angle) {
     );
 }
 
-vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel){
+vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
+    
+    float lagFactor = 0.4;
+    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : normalize(vel);
+    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : dirCurr;
+    if (dot(dirPrev, dirCurr) < 0.0) {
+        dirPrev = -dirPrev;
+    }
+    
+    //Use smootherstep for blending to avoid sharp transitions
+    float blendFactor = smoothstep(0.0, 0.5, dot(dirPrev, dirCurr));
+    vec3 blendedDir = normalize(mix(dirPrev, dirCurr, mix(lagFactor, 1.0, 1.0-blendFactor)));
+    
+    
+    vec2 res = vec2(1000.0, 0.0);
+    vec3 segmentStart = anima2();
+    
+    vec3 p1 = segmentStart, p2 = segmentStart, p3 = segmentStart;
+    vec3 d1 = vec3(0.0), d2 = vec3(0.0), d3 = vec3(0.0);
+    vec3 midpoint = segmentStart;
+    
+    for(int i = 0; i < NUMI; i++) {
+        float ih = float(i) / NUMF;
+        vec2 anim = anima(ih, fishTime);
+        float ll = (i == 0) ? 0.655 : 0.48;
+        
+        // Create animation offset with fallback for zero velocity
+        vec3 animOffset = length(vel) > 0.0 ? 
+            normalize(vec3(sin(anim.y), sin(anim.x), cos(anim.x))) :
+            vec3(0.0, 0.1, 1.0);
+        
+        // Blend directions with ensured validity
+        vec3 segmentDir = normalize(mix(blendedDir, animOffset, min(lagFactor * 1.5, 0.9)));
+        
+        // Ensure segment direction is valid
+        if (any(isnan(segmentDir))){ segmentDir = vec3(0.0, 0.0, 1.0);}
+        
+        vec3 segmentEnd = segmentStart + ll * segmentDir;
+        
+        vec2 dis = sd2Segment(segmentStart, segmentEnd, p);
+        
+        if(dis.x < res.x) {
+            res = vec2(dis.x, ih + dis.y / NUMF);
+            midpoint = mix(segmentStart, segmentEnd, dis.y);
+            ccd = segmentEnd - segmentStart;
+            
+            lastDolphinLocalPCandidate = p;
+            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF;
+        }
+        
+        // Store reference points for fins/tail
+        if(i == 3) { p1 = segmentStart; d1 = segmentEnd - segmentStart; }
+        if(i == 4) { p3 = segmentStart; d3 = segmentEnd - segmentStart; }
+        if(i == (NUMI - 1)) { p2 = segmentEnd; d2 = segmentEnd - segmentStart; }
+        
+        segmentStart = segmentEnd;
+    }
+    ccp = midpoint;
+    
+    // Body SDF
+    float h = res.y;
+    float ra = 0.05 + h * (1.0 - h) * (1.0 - h) * 2.7;
+    ra += 7.0 * max(0.0, h - 0.04) * exp(-30.0 * max(0.0, h - 0.04)) * smoothstep(-0.1, 0.1, p.y - midpoint.y);
+    ra -= 0.03 * (smoothstep(0.0, 0.1, abs(p.y - midpoint.y))) * (1.0 - smoothstep(0.0, 0.1, h));
+    ra += 0.05 * clamp(1.0 - 3.0 * h, 0.0, 1.0);
+    ra += 0.035 * (1.0 - smoothstep(0.0, 0.025, abs(h - 0.1))) * (1.0 - smoothstep(0.0, 0.1, abs(p.y - midpoint.y)));
+    
+    res.x = 0.75 * (distance(p, midpoint) - ra);
+    
+    // Improved fin/tail calculations with stability checks
+    if(length(d3) > 0.0) {
+        // Blend the fin direction with the overall movement direction
+        //vec3 finDir = normalize(mix(blendedDir, normalize(d3), lagFactor));
+        vec3 finDir = normalize(p3);
+        
+        // Create rotation matrix with proper up vector handling
+        vec3 upRef = abs(dot(finDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(upRef, finDir));
+        vec3 newUp = cross(finDir, right);
+        mat3 finRot = mat3(right, newUp, finDir);
+        
+        // Transform point to fin space (using transpose for correct transformation)
+        vec3 ps = transpose(finRot) * (p - p3);
+        ps.z -= 0.4;
+        
+        // Fin SDF calculations
+        float d5 = length(ps.yz) - 0.9;
+        d5 = max(d5, -(length(ps.yz - vec2(0.6, 0.0)) - 0.35));
+        d5 = max(d5, udRoundBox(ps + vec3(0.0, -0.5, 0.5), vec3(0.0, 0.5, 0.5), 0.02));
+        res.x = smoothMin(res.x, d5, 0.1);
+    }
+    
+    if(length(d1) > 0.0) {
+        // Blend the fin direction with the overall movement direction
+        //vec3 finDir2 = normalize(mix(blendedDir, normalize(d1), lagFactor));
+        vec3 finDir2 = normalize(p1);
+        
+        // Create rotation matrix with proper up vector handling
+        vec3 upRefFin2 = abs(dot(finDir2, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 rightFin2 = normalize(cross(upRefFin2, finDir2));
+        vec3 newUpFin2 = cross(finDir2, rightFin2);
+        mat3 finRot2 = mat3(rightFin2, newUpFin2, finDir2);
+        
+        // Transform point to fin space (using transpose for correct transformation)
+        vec3 finLocal2 = transpose(finRot2) * (p - p1);
+        finLocal2.x = abs(finLocal2.x);
+        
+        // Compute blend factor for fin shape
+        float lVal = smoothstep(0.4, 0.9, finLocal2.x);
+        lVal *= 1.0 - clamp(5.0 * abs(finLocal2.z + 0.2), 0.0, 1.0);
+        
+        finLocal2 += vec3(-0.2, 0.36, -0.2);
+        float dFin2 = length(finLocal2.xz) - 0.8;
+        dFin2 = max(dFin2, -(length(finLocal2.xz - vec2(0.2, 0.4)) - 0.8));
+        dFin2 = max(dFin2, udRoundBox(finLocal2, vec3(1.0, 0.0, 1.0), 0.015 + 0.05 * lVal));
+        res.x = smoothMin(res.x, dFin2, 0.12);
+    }
+    
+    if(length(d2) > 0.0) {
+        // Blend the tail direction with the overall movement direction (less lag for more responsiveness)
+        vec3 tailDir = normalize(mix(blendedDir, normalize(d2), 0.8));
+        
+        // Create rotation matrix with proper up vector handling
+        vec3 upRef = abs(dot(tailDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(upRef, tailDir));
+        vec3 newUp = cross(tailDir, right);
+        mat3 tailRot = mat3(right, newUp, tailDir);
+        
+        // Transform point to tail space (using transpose for correct transformation)
+        vec3 tailLocal = transpose(tailRot) * (p - p2 - tailDir * 0.25);
+        
+        // Tail SDF calculations
+        float dTail = length(tailLocal.xz) - 0.6;
+        dTail = max(dTail, -(length(tailLocal.xz - vec2(0.0, 0.8)) - 0.9));
+        dTail = max(dTail, udRoundBox(tailLocal, vec3(1.0, 0.005, 1.0), 0.005));
+        res.x = smoothMin(res.x, dTail, 0.1);
+    }
+    
+    return res;
+}
+
+// Improved kinematics, but cant figure out the fin placement
+vec2 sdDolphinKinematicNEWAPPROACH(vec3 p, vec3 vel, vec3 prevVel) {
+    // Direction blending (unchanged)
+    float lagFactor = 0.4;
+    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : vec3(0.0, 0.0, -1.0);
+    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : vec3(0.0, 0.0, -1.0);
+    
+    float blendFactor = smoothstep(0.0, 0.5, dot(dirPrev, dirCurr));
+    vec3 blendedDir = normalize(mix(dirPrev, dirCurr, mix(lagFactor, 1.0, 1.0-blendFactor)));
+    
+    vec2 res = vec2(1000.0, 0.0);
+    vec3 segmentStart = anima2();
+    
+    // Store all segments for proper body shape and fin placement
+    vec3[NUMI] segments;
+    vec3[NUMI] segmentDirs;
+    vec3 midpoint = segmentStart;
+    
+    for(int i = 0; i < NUMI; i++) {
+        float ih = float(i) / NUMF;
+        vec2 anim = anima(ih, fishTime);
+        float ll = (i == 0) ? 0.655 : 0.48;
+        
+        vec3 animOffset = length(vel) > 0.0 ? 
+            normalize(vec3(sin(anim.y), sin(anim.x), cos(anim.x))) :
+            vec3(0.0, 0.1, 1.0);
+        
+        vec3 segmentDir = normalize(mix(blendedDir, animOffset, min(lagFactor * 1.5, 0.9)));
+        if (any(isnan(segmentDir))) segmentDir = vec3(0.0, 0.0, 1.0);
+        
+        vec3 segmentEnd = segmentStart + ll * segmentDir;
+        
+        segments[i] = segmentStart;
+        segmentDirs[i] = segmentDir;
+        
+        vec2 dis = sd2Segment(segmentStart, segmentEnd, p);
+        if(dis.x < res.x) {
+            res = vec2(dis.x, ih + dis.y / NUMF);
+            midpoint = mix(segmentStart, segmentEnd, dis.y);
+            ccd = segmentEnd - segmentStart;
+            lastDolphinLocalPCandidate = p;
+            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF;
+        }
+        
+        segmentStart = segmentEnd;
+    }
+    ccp = midpoint;
+    
+    // RESTORE ORIGINAL DOLPHIN BODY SHAPE
+    float h = res.y;
+    float ra = 0.05 + h*(1.0-h)*(1.0-h)*2.7;
+    // Dolphin-specific shape adjustments
+    ra += 7.0*max(0.0,h-0.04)*exp(-30.0*max(0.0,h-0.04)) * smoothstep(-0.1, 0.1, p.y-midpoint.y);
+    ra -= 0.03*(smoothstep(0.0, 0.1, abs(p.y-midpoint.y)))*(1.0-smoothstep(0.0,0.1,h));
+    ra += 0.05*clamp(1.0-3.0*h,0.0,1.0);
+    ra += 0.035*(1.0-smoothstep( 0.0, 0.025, abs(h-0.1) ))* (1.0-smoothstep(0.0, 0.1, abs(p.y-midpoint.y)));
+    
+    // Main body SDF with proper dolphin shape
+    res.x = 0.75 * (distance(p,midpoint) - ra);
+    
+    // IMPROVED FIN/TAL CALCULATIONS (now properly attached to body)
+    
+    // Dorsal fin (using segment 4)
+    if(NUMI > 4) {
+        vec3 finBase = segments[4];
+        vec3 segmentDir = segmentDirs[4];
+        
+        // Calculate segment-aligned rotation
+        vec3 segmentRight = normalize(cross(segmentDir, vec3(0,1,0)));
+        vec3 segmentUp = normalize(cross(segmentRight, segmentDir));
+        mat3 finRot = mat3(segmentRight, segmentUp, segmentDir);
+        
+        // Transform to fin local space
+        vec3 finLocal = finRot * (p - finBase);
+        finLocal.z -= 0.4; // Position adjustment
+        
+        // Dorsal fin SDF
+        float dFin = length(finLocal.yz) - 0.9;
+        dFin = max(dFin, -(length(finLocal.yz - vec2(0.6, 0.0)) - 0.35));
+        dFin = max(dFin, udRoundBox(finLocal + vec3(0.0, -0.5, 0.5), vec3(0.0, 0.5, 0.5), 0.02));
+        res.x = smoothMin(res.x, dFin, 0.1);
+    }
+    
+    // Pectoral fins (segment 3)
+    if(NUMI > 3) {
+        vec3 finBase = segments[3];
+        vec3 segmentDir = segmentDirs[3];
+        
+        // Calculate segment-aligned rotation
+        vec3 segmentRight = normalize(cross(segmentDir, vec3(0,1,0)));
+        vec3 segmentUp = normalize(cross(segmentRight, segmentDir));
+        mat3 finRot = mat3(segmentRight, segmentUp, segmentDir);
+        
+        // Transform to fin local space
+        vec3 finLocal = finRot * (p - finBase);
+        finLocal.x = abs(finLocal.x); // Mirror for both fins
+        
+        // Pectoral fin SDF
+        float lVal = smoothstep(0.4, 0.9, finLocal.x);
+        lVal *= 1.0 - clamp(5.0 * abs(finLocal.z + 0.2), 0.0, 1.0);
+        
+        finLocal += vec3(-0.2, 0.36, -0.2); // Fin position offset
+        
+        float dFin = length(finLocal.xz) - 0.8;
+        dFin = max(dFin, -(length(finLocal.xz - vec2(0.2, 0.4)) - 0.8));
+        dFin = max(dFin, udRoundBox(finLocal, vec3(1.0, 0.0, 1.0), 0.015 + 0.05 * lVal));
+        res.x = smoothMin(res.x, dFin, 0.12);
+    }
+    
+    // Tail (last segment)
+    if(NUMI > 1) {
+        vec3 tailBase = segments[NUMI-1];
+        vec3 segmentDir = segmentDirs[NUMI-1];
+        
+        // Calculate segment-aligned rotation
+        vec3 segmentRight = normalize(cross(segmentDir, vec3(0,1,0)));
+        vec3 segmentUp = normalize(cross(segmentRight, segmentDir));
+        mat3 tailRot = mat3(segmentRight, segmentUp, segmentDir);
+        
+        // Transform to tail local space
+        vec3 tailLocal = tailRot * (p - tailBase - segmentDir * 0.25);
+        
+        // Tail SDF
+        float dTail = length(tailLocal.xz) - 0.6;
+        dTail = max(dTail, -(length(tailLocal.xz - vec2(0.0, 0.8)) - 0.9));
+        dTail = max(dTail, udRoundBox(tailLocal, vec3(1.0, 0.005, 1.0), 0.005));
+        res.x = smoothMin(res.x, dTail, 0.1);
+    }
+    
+    return res;
+}
+
+vec2 sdDolphinKinematic1(vec3 p, vec3 vel, vec3 prevVel) {
+    // Improved direction blending with smoother transitions
+    float lagFactor = 0.4;
+    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : vec3(0.0, 0.0, -1.0);
+    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : vec3(0.0, 0.0, -1.0);
+    
+    // Use smootherstep for blending to avoid sharp transitions
+    float blendFactor = smoothstep(0.0, 0.5, dot(dirPrev, dirCurr));
+    vec3 blendedDir = normalize(mix(dirPrev, dirCurr, mix(lagFactor, 1.0, 1.0-blendFactor)));
+    
+    vec2 res = vec2(1000.0, 0.0);
+    vec3 segmentStart = anima2();
+    
+    vec3 p1 = segmentStart, p2 = segmentStart, p3 = segmentStart;
+    vec3 d1 = vec3(0.0), d2 = vec3(0.0), d3 = vec3(0.0);
+    vec3 midpoint = segmentStart;
+    
+    for(int i = 0; i < NUMI; i++) {
+        float ih = float(i) / NUMF;
+        vec2 anim = anima(ih, fishTime);
+        float ll = (i == 0) ? 0.655 : 0.48;
+        
+        // Create animation offset with fallback for zero velocity
+        vec3 animOffset = length(vel) > 0.0 ? 
+            normalize(vec3(sin(anim.y), sin(anim.x), cos(anim.x))) :
+            vec3(0.0, 0.1, 1.0);
+        
+        // Blend directions with ensured validity
+        vec3 segmentDir = normalize(mix(blendedDir, animOffset, min(lagFactor * 1.5, 0.9)));
+        
+        // Ensure segment direction is valid
+        if (any(isnan(segmentDir))){ segmentDir = vec3(0.0, 0.0, 1.0);}
+        
+        vec3 segmentEnd = segmentStart + ll * segmentDir;
+        
+        vec2 dis = sd2Segment(segmentStart, segmentEnd, p);
+        
+        if(dis.x < res.x) {
+            res = vec2(dis.x, ih + dis.y / NUMF);
+            midpoint = mix(segmentStart, segmentEnd, dis.y);
+            ccd = segmentEnd - segmentStart;
+            
+            lastDolphinLocalPCandidate = p;
+            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF;
+        }
+        
+        // Store reference points for fins/tail
+        if(i == 3) { p1 = segmentStart; d1 = segmentEnd - segmentStart; }
+        if(i == 4) { p3 = segmentStart; d3 = segmentEnd - segmentStart; }
+        if(i == (NUMI - 1)) { p2 = segmentEnd; d2 = segmentEnd - segmentStart; }
+        
+        segmentStart = segmentEnd;
+    }
+    ccp = midpoint;
+    
+    // Body SDF (unchanged but more robust)
+    float h = res.y;
+    float ra = 0.05 + h * (1.0 - h) * (1.0 - h) * 2.7;
+    ra += 7.0 * max(0.0, h - 0.04) * exp(-30.0 * max(0.0, h - 0.04)) * smoothstep(-0.1, 0.1, p.y - midpoint.y);
+    ra -= 0.03 * (smoothstep(0.0, 0.1, abs(p.y - midpoint.y))) * (1.0 - smoothstep(0.0, 0.1, h));
+    ra += 0.05 * clamp(1.0 - 3.0 * h, 0.0, 1.0);
+    ra += 0.035 * (1.0 - smoothstep(0.0, 0.025, abs(h - 0.1))) * (1.0 - smoothstep(0.0, 0.1, abs(p.y - midpoint.y)));
+    
+    res.x = 0.75 * (distance(p, midpoint) - ra);
+    
+    // Improved fin/tail calculations with stability checks
+    if(length(d3) > 0.0) {
+        vec3 finDir = normalize(d3);
+        vec3 upRef = abs(dot(finDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(upRef, finDir));
+        vec3 newUp = cross(finDir, right);
+        mat3 finRot = mat3(right, newUp, finDir);
+        
+        vec3 ps = finRot * (p - p3);
+        ps.z -= 0.4;
+        float d5 = length(ps.yz) - 0.9;
+        d5 = max(d5, -(length(ps.yz - vec2(0.6, 0.0)) - 0.35));
+        d5 = max(d5, udRoundBox(ps + vec3(0.0, -0.5, 0.5), vec3(0.0, 0.5, 0.5), 0.02));
+        res.x = smoothMin(res.x, d5, 0.1);
+    }
+    
+    if(length(d1) > 0.0) {
+        vec3 finDir2 = normalize(d1);
+        vec3 upRefFin2 = abs(dot(finDir2, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 rightFin2 = normalize(cross(upRefFin2, finDir2));
+        vec3 newUpFin2 = cross(finDir2, rightFin2);
+        mat3 finRot2 = mat3(rightFin2, newUpFin2, finDir2);
+        
+        vec3 finLocal2 = finRot2 * (p - p1);
+        finLocal2.x = abs(finLocal2.x);
+        float lVal = smoothstep(0.4, 0.9, finLocal2.x);
+        lVal *= 1.0 - clamp(5.0 * abs(finLocal2.z + 0.2), 0.0, 1.0);
+        
+        finLocal2 += vec3(-0.2, 0.36, -0.2);
+        float dFin2 = length(finLocal2.xz) - 0.8;
+        dFin2 = max(dFin2, -(length(finLocal2.xz - vec2(0.2, 0.4)) - 0.8));
+        dFin2 = max(dFin2, udRoundBox(finLocal2, vec3(1.0, 0.0, 1.0), 0.015 + 0.05 * lVal));
+        res.x = smoothMin(res.x, dFin2, 0.12);
+    }
+    
+    if(length(d2) > 0.0) {
+        vec3 tailDir = normalize(d2);
+        vec3 upRef = abs(dot(tailDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(upRef, tailDir));
+        vec3 newUp = cross(tailDir, right);
+        mat3 tailRot = mat3(right, newUp, tailDir);
+        
+        vec3 tailLocal = tailRot * (p - p2 - tailDir * 0.25);
+        float dTail = length(tailLocal.xz) - 0.6;
+        dTail = max(dTail, -(length(tailLocal.xz - vec2(0.0, 0.8)) - 0.9));
+        dTail = max(dTail, udRoundBox(tailLocal, vec3(1.0, 0.005, 1.0), 0.005));
+        res.x = smoothMin(res.x, dTail, 0.1);
+    }
+    
+    return res;
+}
+
+vec2 sdDolphinKinematic2(vec3 p, vec3 vel, vec3 prevVel){
     float lagFactor = 0.4; // adjust this to increase or decrease the lag
     vec3 dirPrev = -normalize(prevVel);
     vec3 dirCurr = -normalize(vel);
@@ -433,8 +951,8 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel){
             midpoint=segmentStart+(segmentEnd-segmentStart)*dis.y; 
             ccd = segmentEnd-segmentStart;
 
-            lastDolphinLocalP = lastDolphinLocalPCandidate;
-            lastDolphinSegmentRatio = lastDolphinSegmentRatioCandidate;
+            lastDolphinLocalPCandidate = p; // already local!
+            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF; // for vertical / longitudinal blend
         }
 		
 		if( i==3 ) { 
@@ -579,7 +1097,7 @@ vec2 fishBound(vec3 p) {
         vec3 vel = boids[0].velocity;
         vec3 prevVel = boids[1].velocity;
         vec3 localP = p - pos;  // translate into boid's space
-        float dolphin_scale = 0.2;
+        float dolphin_scale = 0.3;
         //float fishSDF = dolphin_scale * sdDolphin(localP/dolphin_scale).x;
         
         float fishSDF = dolphin_scale * sdDolphinKinematic(localP/dolphin_scale, vel,  prevVel).x;
@@ -606,9 +1124,10 @@ vec2 fishBound(vec3 p) {
             vec3 localP = p - pos;  // translate into boid's space
             rotationFromDirection(localP, vel);
             
-            float fishSDF = limitedDomainRepeatSDF(localP, 0.5, vec3(1.5), vel);
+            float fishSDF = limitedDomainRepeatSDF(localP, 0.5, vec3(1.4), vel);
             //float fishSDF = sdFish(localP, 0.5);
      
+            //d = min(d, fishSDF);
             if (fishSDF < d) {
                 d = fishSDF;
                 renderIndex = 2.0;
@@ -665,6 +1184,8 @@ float fbm(vec2 p) {
     return value;
 }
 
+
+
 float warpedFbm(vec2 p) {
     vec2 q = vec2(fbm(p + vec2(1.7, 9.2)),
                   fbm(p + vec2(8.3, 2.8)));
@@ -672,12 +1193,15 @@ float warpedFbm(vec2 p) {
     return fbm(p + 2.0 * q);
 }
 
+
+
 vec2 terrain(vec3 p) {
     float baseHeight = p.y + 1.5;
 
     // Macro amplitude shaping
     float macro = fbm(p.xz * 0.15);           // slow macro undulation
-    float macroHeight = mix(0.5, 1.5, macro); // varying terrain "scale"
+    
+    float macroHeight = mix(0.0, 2.5, macro); // varying terrain "scale"
 
     // Mid-frequency detail hills and ridges
     float ridges = abs(sin(p.x * 0.3) * sin(p.z * 0.3));  // simple repeating ridges
@@ -685,20 +1209,20 @@ vec2 terrain(vec3 p) {
 
     // Mountain height: large, blocky terrain from low-freq FBM
     float mountains = pow(fbm(p.xz * 0.07 + vec2(5.0)), 1.8); // steeper features
-    float mountainHeight = 1.4 * mountains;
+    float mountainHeight = 1.4 * mountains + noise(p.xz * 0.5); // add some noise for roughness
 
-    // 🔀 Combine terrain components
+    // Combine terrain components
     float finalHeight =
         macroHeight *
         (0.4 * warpedFbm(p.xz * 1.5 + iTime * 0.02) +  // small detail
          ridgeHeight +
-         mountainHeight);
+         mountainHeight - fbm(p.xz) * 0.002); // large detail
 
     return vec2(baseHeight + finalHeight, 3.0);
 }
 
 vec2 terrainBound(vec3 p) {
-    if (p.y < -0.9) {
+    if (p.y < -0.5) {
         return terrain(p);
     }
     return vec2(1000000., 0.0);
@@ -732,39 +1256,308 @@ vec2 map(vec3 p){
 
 // LIGHTING ==========================================================
 
-vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
+// https://iquilezles.org/articles/rmshadows/
+float softShadow(vec3 ro, vec3 rd, float k) {
+    float res = 1.0;
+    float t = 0.02; // start distance to skip self-shadowing
+    for (int i = 0; i < 24; i++) {
+        float h = map(ro + rd * t).x;
+        if (h < 0.001) return 0.0; // fully in shadow
+        res = min(res, k * h / t);
+        t += clamp(h, 0.01, 0.3); // adaptive stepping
+        if (t > 10.0) break;
+    }
+    return clamp(res, 0.0, 1.0);
+}
+
+vec3 doLighting2(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
+    vec3 lightDir = normalize(lightPos);
+    vec3 halfVec = normalize(lightDir - viewDir);
+    vec3 refl = reflect(-viewDir, normal);
+
+    float sky     = clamp(normal.y, 0.0, 1.0);
+    float ground  = clamp(-normal.y, 0.0, 1.0);
+    float diff    = max(dot(normal, lightDir), 0.0);
+    float back    = max(0.3 + 0.7 * dot(normal, -vec3(lightDir.x, 0.0, lightDir.z)), 0.0);
+    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
+    float spec    = pow(max(dot(halfVec, normal), 0.0), 16.0 * gloss); // reduce gloss sharpness
+    float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
+
+    // -- TUNED --
+    vec3 brdf = vec3(0.0);
+    brdf += 1.5 * diff * vec3(1.0)*shadows;                             // sunlight
+    brdf += 0.8 * sky * vec3(0.3, 0.5, 0.7);                    // sky tint
+    brdf += 0.4 * ground * vec3(0.1, 0.15, 0.1);                // soft green bounce
+    brdf += 0.3 * back * vec3(0.2, 0.2, 0.25);                  // gentle backlighting
+    brdf += 0.6 * sss * vec3(1.0) * gloss * ao;                 // subtle SSS
+    brdf += 0.5 * spec * vec3(1.0) * fresnel * gloss * ao * shadows;      // specular
+    // Optional soft reflection boost
+    brdf += 0.25 * pow(max(dot(refl, lightDir), 0.0), 4.0) * gloss2;
+
+    return baseColor * brdf;
+}
+
+// vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
+//     vec3 lightDir = normalize(lightPos); // your global lightPos is fine
+//     vec3 halfVec = normalize(lightDir - viewDir);
+//     vec3 refl = reflect(viewDir, normal);
+
+//     float sky     = clamp(normal.y, 0.0, 1.0);
+//     float ground  = clamp(-normal.y, 0.0, 1.0);
+//     float diff    = max(dot(normal, lightDir), 0.0);
+//     float back    = max(0.3 + 0.7 * dot(normal, -vec3(lightDir.x, 0.0, lightDir.z)), 0.0);
+//     float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
+//     float spec    = pow(max(dot(halfVec, normal), 0.0), 32.0 * gloss);
+//     float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
+
+//     // Optional: real shadow tracing if you have softShadow()
+//     float shadowFactor = softShadow(pos + normal * 0.01, lightDir, 16.0);
+
+//     vec3 brdf = vec3(0.0);
+//     brdf += 4.0 * diff * vec3(1.00, 0.75, 0.55) * shadowFactor;
+//     brdf += 1.0  * sky  * vec3(0.20, 0.45, 0.6) * (0.5 + 0.5 * ao);
+//     brdf += 0.2  * back * vec3(0.40, 0.6, 0.8);
+//     brdf += 1.0  * ground * vec3(0.1, 0.2, 0.15);
+//     brdf += 0.8  * sss  * vec3(0.3, 0.3, 0.35) * gloss * ao;
+//     brdf += 0.3  * spec * vec3(1.2, 1.1, 1.0) * shadowFactor * fresnel * gloss;
+
+//     return baseColor * brdf;
+// }
+
+
+vec3 doLighting(vec3 pos, vec3 normal, vec3 viewDir, float gloss, float gloss2, float shadows, vec3 baseColor, float ao) {
+    vec3 lightDir = normalize(lightPos); // your global lightPos is fine
+    vec3 halfVec = normalize(lightDir - viewDir);
+    vec3 refl = reflect(viewDir, normal);
+
+    float sky     = clamp(normal.y, 0.0, 1.0);
+    float ground  = clamp(-normal.y, 0.0, 1.0);
+    float diff    = max(dot(normal, lightDir), 0.0);
+    float back    = max(0.3 + 0.7 * dot(normal, -vec3(lightDir.x, 0.0, lightDir.z)), 0.0);
+    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0);
+    float spec    = pow(max(dot(halfVec, normal), 0.0), 32.0 * gloss);
+    float sss     = pow(1.0 + dot(normal, viewDir), 2.0);
+
+
+    // Optional: real shadow tracing if you have softshadow()
+    //float shadowFactor = 1.0; // TODO: replace with softshadow() if needed
+    float shadowFactor = softShadow(pos + normal * 0.01, lightDir, 16.0);
+
+    vec3 brdf = vec3(0.0);
+    brdf += 20.0 * diff * vec3(1.00, 0.75, 0.55) * shadowFactor;
+    brdf += 5.0  * sky  * vec3(0.20, 0.45, 0.6) * (0.5 + 0.5 * ao);
+    brdf += 1.0  * back * vec3(0.40, 0.6, 0.8);
+    brdf += 5.0  * ground * vec3(0.1, 0.2, 0.15);
+    brdf += 4.0  * sss  * vec3(0.3, 0.3, 0.35) * gloss * ao;
+    brdf += 1.5  * spec * vec3(1.2, 1.1, 1.0) * shadowFactor * fresnel * gloss;
+
+    return baseColor * brdf;
+}
+
+
+
+
+vec3 calculateFishColor(vec3 localP, float scale) {
+    // ----------------------------------------------
+    // 1. Normalize the vertical coordinate based on fish bounds.
+    // ----------------------------------------------
+    // Adjust these values as needed to match your fish model's vertical extent.
+    localP = animateFish(localP);
+    float minY = -0.05 * scale; // lower bound of fish geometry
+    float maxY =  0.05 * scale; // upper bound of fish geometry
+    float normY = clamp((localP.y - minY) / (maxY - minY), 0.0, 1.0);
+
+    // Define thresholds in the normalized [0, 1] range.
+    float bellyThreshold = 0.3; // below this, the fish is completely belly (white)
+    float backThreshold  = 0.8; // above this, the fish's back is fully orange (with darker orange near the spine)
+
+    // ----------------------------------------------
+    // 2. Compute the blend factors
+    // ----------------------------------------------
+    // Gradually blend from pure belly to orange.
+    float bellyTop = -0.5;
+    float bellyGradient = smoothstep(0.0, bellyThreshold, normY);
+    // For the orange gradient, let the color darken from light to dark orange.
+    float orangeGradient = smoothstep(bellyThreshold, backThreshold, normY);
+
+    // ----------------------------------------------
+    // 3. Define colors with an offset for variety per fish.
+    // ----------------------------------------------
+    vec3 bellyColor   = vec3(0.98); // nearly pure white belly.
+    vec3 lightOrange  = vec3(1.0, 0.8, 0.6) + lastFishRepeatIndex * 0.5;
+    vec3 darkOrange   = vec3(0.4, 0.1, 0.0)* 0.5 + lastFishRepeatIndex * 0.25;
+    vec3 orangeColor  = mix(lightOrange, darkOrange, orangeGradient);
+
+    // Blend belly and orange colors.
+    vec3 baseColor = mix(bellyColor, orangeColor, bellyGradient);
+
+    // ----------------------------------------------
+    // 4. Stripe Pattern on the Back
+    // ----------------------------------------------
+    // float stripeStrength = smoothstep(bellyThreshold, bellyThreshold + 0.1, normY);
+    // float stripeFreq = 100.0;
+    // float stripePattern = sin(localP.x * stripeFreq + localP.z);
+    // float stripeMask = smoothstep(0.2, 0.15, abs(stripePattern));
+    // vec3 stripeColor = vec3(0.0);  // black stripes.
+    // baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
+
+    // ----------------------------------------------
+// Organic Stripe Pattern on the Back
+// ----------------------------------------------
+// Only activate stripes on the back (orange) portion:
+    float stripeStrength = smoothstep(bellyTop, bellyTop + 0.1 * scale, localP.y);
+    // Adjust the frequency of the base stripes
+    float stripeFreq = 100.0;
+    // Use fbm to create a small warping offset; scaling it to keep the displacement subtle.
+    float warp = fbm(localP.xz * 10.0) * 0.3;
+    // Perturb the x-coordinate with the warp for a more organic stripe placement.
+    float stripePattern = sin((localP.x + warp) * stripeFreq + localP.z);
+    // Use smoothstep to sharply delineate stripe edges, based on the altered stripe pattern.
+    float stripeMask = smoothstep(0.65, 0.25, abs(stripePattern));
+    // The stripe color remains black.
+    vec3 stripeColor = vec3(0.0);
+    // Blend the stripes into your base color.
+    baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
+
+
+    // ----------------------------------------------
+    // 5. Spot Pattern (Additional Color Variant)
+    // ----------------------------------------------
+    float spotNoise = fbm(localP.xz * 10.0);
+    float spotMask = smoothstep(0.8, 0.85, spotNoise);
+    vec3 spotColor = vec3(0.0, 0.0, 0.0);
+    baseColor = mix(baseColor, spotColor, spotMask * 0.5);
+
+    // ----------------------------------------------
+    // 6. Final Output
+    // ----------------------------------------------
+    return clamp(baseColor, 0.0, 1.0);
+}
+
+
+
+vec3 calculateFishColor5(vec3 localP, float scale) {
+    // ---------------------------------------------------------
+    // 1. Vertical Belly-to-Back Segmentation (Abrupt Transition)
+    // ---------------------------------------------------------
+    // Define a threshold that separates the belly (white) from the back (orange).
+    scale = 1.0;
+    float bellyThreshold = 0.0 * scale;
+    // Using step to produce an abrupt switch: 0.0 for belly; 1.0 for back.
+    float backFactor = smoothstep(bellyThreshold, localP.y, 0.5);
+
+    // ----------------------------------------------
+    // 2. Orange Gradient on the Back (Dark to Light)
+    // ----------------------------------------------
+    // For the back region, we want an orange color that goes from dark orange 
+    // (at lower back) to a lighter orange (almost white) as we move upward.
+    // Use a smooth gradient only within the back region.
+    float orangeGradient = smoothstep(bellyThreshold, 0.5 * scale, localP.y);
+    vec3 darkOrange = vec3(0.4, 0.1, 0.0) + lastFishRepeatIndex* 0.2;   // Darker orange hue.
+    vec3 lightOrange = vec3(1.0, 0.8, 0.6) + lastFishRepeatIndex * 0.2;    // Lighter orange hue near white.
+    vec3 orangeColor = mix(darkOrange, lightOrange, orangeGradient);
+
+    // Define the belly color (pure white).
+    vec3 bellyColor = vec3(0.98);
+
+    // Combine based on the vertical region.
+    // Use backFactor (0 or 1) to make the switch abrupt between belly and back.
+    vec3 baseColor = mix(bellyColor, orangeColor, backFactor);
+
+    // ----------------------------------------------
+    // 3. Stripe Pattern (Maintained on the Back)
+    // ----------------------------------------------
+    // Only apply stripes when in the back (orange) region.
+    float stripeStrength = backFactor;
+    float stripeFreq = 100.0;
+    float stripePattern = sin(localP.x * stripeFreq + localP.z);
+    // Using smoothstep for sharp transitions in the stripe mask.
+    float stripeMask = smoothstep(0.2, 0.15, abs(stripePattern));
+    vec3 stripeColor = vec3(0.0);  // Black stripes.
+    // Blend the stripes into the base color.
+    baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
+
+    // ---------------------------------------------------------
+    // 4. Spot Pattern (Additional Color Variant)
+    // ---------------------------------------------------------
+    // Introduce small spots by using an independent noise function.
+    // Increase the frequency to get sparse, random spots.
+    float spotNoise = fbm(localP.xz * 10.0);
+    // A high threshold ensures that only a few high noise values produce spots.
+    float spotMask = smoothstep(0.8, 0.85, spotNoise);
+    // Choose a spot color that is a bit darker than dark orange.
+    vec3 spotColor = vec3(0.7, 0.2, 0.0);
+    // Mix in the spot color slightly (multiplying by a factor to keep them subtle).
+    baseColor = mix(baseColor, spotColor, spotMask * 0.5);
+
+    // ---------------------------------------------------------
+    // 5. Final Output
+    // ---------------------------------------------------------
+    return clamp(baseColor, 0.0, 1.0);
+}
+
+
+
+vec3 getObjectColor2(float renderIndex, vec3 position, vec3 normal) {
     // Lighting directions
     vec3 up = vec3(0.0, 1.0, 0.0);
     float facingUp = dot(normal, up);
 
-    if (renderIndex == 2.0) {
-        // Fish - blue top, white belly, black stripes
-        float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
-        float stripe = smoothstep(0.01, 0.03, abs(sin(20.0 * position.x + position.z * 10.0)));
-        vec3 base = mix(vec3(1.0), vec3(0.1, 0.4, 0.9), topBlend); // belly → top
-        base = mix(base, vec3(0.0), stripe); // overlay stripes
-        base *= 1.2; // boost color a bit
-        return base;
-        //return vec3(0.1, 0.4, 0.9); // for debugging
-
-    } else if (renderIndex == 1.0) {
-        // Dolphin - gray top, white belly
-        float topBlend = clamp(facingUp * 0.5 + 0.5, 0.0, 1.0);
-        return mix(vec3(1.0), vec3(0.9, 0.9, 0.9), topBlend); // belly → top
-        //return vec3(0.9, 0.9, 0.0); // for debugging
-
-
-    } else if (renderIndex == 3.0) {
-        // Ocean floor - brown and green variation
-        float noiseVal = fbm(position.xz * 0.5*position.y);
-        vec3 dirt = vec3(1.0, 0.2, 0.08);
-        vec3 moss = vec3(0.2, 1.0, 0.4);
-        return mix(dirt, moss, noiseVal);
-        
-    }
+    
+    float noiseVal = fbm(position.xz * 0.9*position.y);
+    
+        vec3 dirt = vec3(0.5, 0.2, 0.08)* 0.3;
+        vec3 moss = vec3(0.2, 0.8, 0.4) * 0.4;
+        //return mix(dirt, moss, noiseVal);
+        float threshold = 0.4;
+        float mixFactor = smoothstep(threshold - 0.1, threshold + 0.1, noiseVal);
+        return mix(dirt, moss, mixFactor);
 
     return vec3(1.0); // fallback white
 }
+
+vec3 getObjectColor(float renderIndex, vec3 position, vec3 normal) {
+    // Compute directional lighting influence (if needed later)
+    vec3 up = vec3(0.0, 1.0, 0.0);
+    float facingUp = dot(normal, up);
+
+    // Increase noise frequency for more varied tiling
+    float noiseVal = fbm(position.xz * 1.5);
+
+    // Define a set of colors for a tropical ocean scene
+    vec3 sand   = vec3(0.5, 0.77, 0.60) * 0.5;  // Soft sandy color
+    vec3 dirt   = vec3(0.6, 0.2, 0.08)   * 0.4;  // Muted brown
+    vec3 moss   = vec3(0.2, 1.0, 0.4)    * 0.3;  // Lush green
+    vec3 coral  = vec3(1.0, 0.4, 0.6)    * 0.4;  // Subtle coral pink
+    vec3 ocean  = vec3(0.0, 0.5, 0.7)    * 0.4;  // Vibrant blue-green
+
+    // Choose colors based on ranges of noiseVal and blend with smooth transitions
+    if (noiseVal < 0.3) {
+         // Lower noise values give you the sand areas
+         return sand;
+    } else if (noiseVal < 0.45) {
+         // Transition from sand to dirt
+         float factor = smoothstep(0.3, 0.45, noiseVal);
+         return mix(sand, dirt, factor);
+    } else if (noiseVal < 0.6) {
+         // Transition from dirt to moss
+         float factor = smoothstep(0.45, 0.6, noiseVal);
+         return mix(dirt, moss, factor);
+    } else if (noiseVal < 0.75) {
+         // Transition from moss to coral
+         float factor = smoothstep(0.6, 0.75, noiseVal);
+         return mix(moss, coral, factor);
+    } else {
+         // Transition from coral to ocean for the highest noise values
+         float factor = smoothstep(0.75, 0.9, noiseVal);
+         return mix(coral, ocean, factor);
+    }
+    
+    return vec3(1.0); // fallback white
+}
+
+
+
 
 
 vec3 calculate_normal(in vec3 p)
@@ -780,20 +1573,6 @@ vec3 calculate_normal(in vec3 p)
     return normalize(normal);
 }
 
-vec2 getLightScreenPos(vec3 lightPos, vec3 ro, vec3 forward, vec3 right, vec3 up) {
-    // Compute the vector from camera to light
-    vec3 lightVec = lightPos - ro;
-    // Get the depth (distance along forward)
-    float z = dot(lightVec, forward);
-    // Project the light’s x and y onto the camera plane
-    float x = dot(lightVec, right);
-    float y = dot(lightVec, up);
-    // Perspective divide (assuming a simple pinhole projection)
-    vec2 proj = vec2(x, y) / z;
-    // This result is now in normalized device coordinates (roughly -1 to 1).
-    // (Adjust if your uv space is defined differently.)
-    return proj;
-}
 
 float GodRays(  in vec2 ndc, in vec2 uv) {
     vec2 godRayOrigin = ndc + vec2(-1.15, -1.25);
@@ -895,59 +1674,69 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
             vec3 color = vec3(0.0, 0.0, 0.0);
             vec3 normal = calculate_normal(current_position);
             normal = ditherNormal(normal, uv); // dither normal to make it look smoother
+
+
+
             vec3 baseColor = vec3(1.0, 1.0, 1.0);
-            if (renderIndex == 2.0) {
+            if (renderIndex == 1.0) {
+                baseColor = calculateDolphinColor(lastDolphinLocalP, lastDolphinSegmentRatio);
+            }
+            else if (renderIndex == 2.0) {
                 baseColor = calculateFishColor(lastFishLocalP, lastFishScale);
             }
-            else{
+            else {
                 baseColor = getObjectColor(renderIndex, current_position, normal);
-                color = baseColor;
             }
             color = baseColor;
-
-            // float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-            // if (renderIndex == 1.0 || renderIndex == 2.0) {
-            //     float fresnel = pow(1.0 - dot(rd, normal), 3.0);
-            //     color = mix(color, vec3(1.0), 0.1 * fresnel);
-            // }
-
-
             
             vec3 direction_to_light = normalize(current_position - lightPosition);
             
-            float diffuse_intensity = max(0.0, dot(normal, direction_to_light));
+            //float diffuse_intensity = max(0.01, dot(normal, direction_to_light));
             
             float caustics = generateCaustics(current_position);
             
-            caustics = pow(caustics, 0.5) * 3.0;   // Optional: adjust caustics intensity
-            diffuse_intensity *= 0.6 + 0.4 * caustics;  // Optional: boost contrast
-            //vec3 causticsColor = vec3(0.5, 0.8, 1.0); // ocean-like tint
-            //color += causticsColor * caustics * 0.4;  // blend based on strength
-            color *= caustics*0.4;
-            // specular
-            vec3 viewDir = normalize(current_position - ro);
-            vec3 reflectDir = reflect(direction_to_light, normal);
-            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
-            // vec3 viewDir = normalize(ro - current_position);
-            // vec3 halfDir = normalize(direction_to_light + viewDir);
-            // float spec = pow(max(dot(normal, halfDir), 0.0), 64.0); // sharper specular
+            caustics = pow(caustics, 0.5);   // Optional: adjust caustics intensity
+        
+            //float normalFactor = clamp(dot(normal, lightDirection), 0.0, 1.0);
+            float normalFactor = clamp((dot(normal, vec3(0.0, 1.0, 0.0)) + 0.3) / 1.3, 0.0, 1.0);
+            color *= caustics* normalFactor;
+            //specular
+            //vec3 viewDir = normalize(current_position - ro);
+            vec3 viewDir = normalize(ro - current_position);
+            // vec3 reflectDir = reflect(direction_to_light, normal);
+            // float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.);
+
+            float gloss = 1.5;     // Scene shininess
+            float gloss2 = 10.4;     // Optional reflection boost
+            float ao = 1.0;         // Ambient occlusion placeholder
+            float shadows = 0.0; 
+            vec3 lightDirection = normalize(lightPosition - current_position);
+            //float shadowFactor = softShadow(current_position + normal * 0.01, lightDirection, 16.0);
+
+            color = doLighting(current_position, normal, viewDir, gloss, gloss2, shadows, color, ao);
+
                         
             // // Vlumetric fog (approximate) %Report
             float boolf = 1.0; // turn effect on or off
+
+            
 
             if (renderIndex == 3.0) {
                 
                 float godrays = GodRays(uv, uv2);
                 vec3 lightColor = mix(vec3(0.5, 1.0, 0.8), vec3(0.55, 0.55, 0.95) * 0.75, 1.0 - uv.y);
                 background = mix(background, lightColor, (godrays + 0.05)/1.05);
-                color *= (diffuse_intensity + spec);
+                //color *= (diffuse_intensity + spec);
 
                 // Final fog blend based on depth
                 float fogAmount = 1.0 - exp(-pow(distanceTraveled * 0.3, 1.2));
                 color = mix(color, background, fogAmount);
+                
             }
             else {
-                color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
+                //color = mix(color * (diffuse_intensity + spec), background, boolf * clamp(pow(distanceTraveled/6., 0.7), 0.0, 1.0));
+                color = mix(color, background, boolf * clamp(pow(distanceTraveled/4., 0.7), 0.0, 1.0));
+
             }
             return vec4(color, 1.);
             
@@ -968,10 +1757,7 @@ vec4 rayMarch(in vec3 ro, in vec3 rd, in vec2 uv, in vec2 uv2){
     
     vec3 finalColor = background;
     finalColor = clamp(finalColor, 0.0, 1.0);
-    // Glow pulse from small animals
-    if (fract(sin( uv.x * 45.1 + iTime * 4.0 + uv.y) * 1234.56) > 0.99998) {
-        finalColor += vec3(0.4, 0.7, 0.6); // aqua glow
-    }
+    
 
     
     //return vec4(0.4, 0.6, 0.7, 1.);
@@ -1022,7 +1808,9 @@ void main()
     
 
     // Camera position
-    vec3 ro = target + radius * lookDir;
+    vec3 sway = vec3(1.0 * cos(iTime * 0.2), 0.02 * sin(iTime* 0.2), 0.001 * cos(iTime* 0.2));
+    vec3 ro = target + sway + radius * lookDir;
+    //vec3 ro = target + radius * lookDir;
     // TODO: add camera sway
     //vec3 ro =  target + radius * lookDir+ vec3(0.0, 0.2*sin(iTime), 0.1*cos(iTime));
 
@@ -1044,7 +1832,7 @@ void main()
     float particleOverlay = 0.0;
     vec3 particles = vec3(0.0);
 
-    int NUM_PARTICLES = 100;
+    int NUM_PARTICLES = 200;
     for (int i = 0; i < NUM_PARTICLES; ++i) {
         float id = float(i);
 
@@ -1067,9 +1855,14 @@ void main()
         float glow = drawParticle(gl_FragCoord.xy / iResolution.xy, basePos, size)*0.5;
         particles += alpha * glow * color;
     }
-    fragColor = vec4(result + vec4(particles, 0.0));
+
+    // Glow pulse from small animals
     
-    //fragColor = vec4(result);
+    if (fract(sin( uv.x * 45.1 + iTime * 4.0 + uv.y) * 1234.56) > 0.99995) {
+        result += vec4(0.4, 0.7, 0.6, 0.0); // aqua glow
+    }
+    fragColor = vec4(result + vec4(particles, 0.0));
+
     
 
 }

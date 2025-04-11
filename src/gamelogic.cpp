@@ -29,7 +29,7 @@ struct Boid {
 
 
 
-constexpr int NUM_BOIDS = 27; // Number of boids in the simulation
+constexpr int NUM_BOIDS = 25; // Number of boids in the simulation
 //std::vector<Boid> boids(NUM_BOIDS);
 
 struct GPUBoid {
@@ -70,7 +70,7 @@ sf::Sound* sound;
 
 CommandLineOptions options;
 
-bool hasStarted        = false;
+bool hasStarted        = true;
 bool hasLost           = false;
 bool jumpedToNextFrame = false;
 bool isPaused          = false;

@@ -10,7 +10,7 @@ layout(std430, binding = 0) buffer BoidBuffer {
     Boid boids[];
 };
 
-const int NUM_BOIDS = 20;
+const int NUM_BOIDS = 17;
 
 const float ALIGNMENT_RADIUS = 0.7;
 const float COHESION_RADIUS = 0.9;
@@ -24,13 +24,12 @@ const float COHESION_WEIGHT = 0.3;
 const float SEPARATION_WEIGHT = 0.8;
 
 const float TERRAIN_Y_MIN = -1.0;
-const float TERRAIN_Y_MAX = 2.0;
 const float FLOOR_AVOIDANCE_STRENGTH = 3.0;
 const float FLOOR_AVOIDANCE_RANGE = 0.1;
 
 const float CAMERA_X_MIN = -3.0;
 
-const float TIME_STEP = 0.01;
+const float TIME_STEP = 0.012;
 
 vec3 wrapPosition(vec3 p, vec3 bounds) {
     return p - 2.0 * bounds * floor((p + bounds) / (2.0 * bounds));
@@ -101,6 +100,25 @@ vec3 computePredatorChase(vec3 pos) {
     }
     return normalize(target - pos);
 }
+vec3 computeBoundAvoidance(vec3 pos) {
+    vec3 floorForce = vec3(0.0);
+    vec3 cameraForce = vec3(0.0);
+    float distToFloor = pos.y - TERRAIN_Y_MIN;
+    if (distToFloor < FLOOR_AVOIDANCE_RANGE) {
+        float push = (1.0 - distToFloor / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
+        floorForce = vec3(0.0, push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
+        
+    }
+
+    float distTOCamera = pos.x - CAMERA_X_MIN;
+    if (distTOCamera < FLOOR_AVOIDANCE_RANGE) {
+        float push = (1.0 - distTOCamera / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
+        cameraForce = vec3(0.0, push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
+        cameraForce;
+    }
+    return floorForce + cameraForce;
+
+}
 
 vec3 safeNormalize(vec3 v, vec3 fallback) {
     return length(v) > 0.0001 ? normalize(v) : fallback;
@@ -113,54 +131,49 @@ void main() {
     vec3 pos = boids[id].position;
     vec3 vel = boids[id].velocity;
 
-    vec3 bounds = vec3(3.0, 2.5, 2.5);
+    vec3 bounds = vec3(3.0, 2.0, 2.5);
     vec3 acceleration = vec3(0.0);
 
     if (id == 0) {
         boids[1].velocity = vel;
         vec3 chase = computePredatorChase(pos);
         acceleration = PREDATOR_CHASE_WEIGHT * chase;
-        vel = normalize(vel + acceleration * 0.05) * 3.0;
+        //acceleration += computeBoundAvoidance(pos);
+        
+        vel = normalize(vel + normalize(acceleration) * 0.7) * 3.0;
         
     
     } else if (id > 1) {
         vec3 align = computeAlignment(id, pos);
         vec3 cohere = computeCohesion(id, pos);
         vec3 separate = computeSeparation(id, pos);
+        vec3 boundAvoidance = computeBoundAvoidance(pos);
         vec4 fear = computeFear(pos);
 
         acceleration = align * ALIGNMENT_WEIGHT
                      + cohere * COHESION_WEIGHT
                      + separate * SEPARATION_WEIGHT
+                     + boundAvoidance
                      + fear.xyz * fear.w * fear.w;
 
-        float distToFloor = pos.y - TERRAIN_Y_MIN;
-        if (distToFloor < FLOOR_AVOIDANCE_RANGE) {
-            float push = (1.0 - distToFloor / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
-            vec3 floorForce = vec3(0.0, push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
-            acceleration += floorForce;
-        }
 
-        float distToRoof = pos.y - TERRAIN_Y_MAX;
-        if (distToFloor < FLOOR_AVOIDANCE_RANGE) {
-            float push = (1.0 - distToRoof / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
-            vec3 roofForce = vec3(0.0, push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
-            acceleration += roofForce;
-        }
-
-        float distTOCamera = pos.x - CAMERA_X_MIN;
-        if (distTOCamera < FLOOR_AVOIDANCE_RANGE) {
-            float push = (1.0 - distTOCamera / FLOOR_AVOIDANCE_RANGE); // 1 when close, 0 when far
-            vec3 cameraForce = vec3(0.0, push * FLOOR_AVOIDANCE_STRENGTH, 0.0);
-            acceleration += cameraForce;
-        }
-
-        vel = safeNormalize(vel + acceleration, vel) * max(1. , fear.w);
-        vel *= 0.7;
+        const float NORMAL_SPEED = 0.7;
+        const float PANIC_SPEED = 7.0;  // Max speed when fleeing
+        const float PANIC_THRESHOLD = 2.0; // Fear level where speed starts increasing
+        
+        // Calculate speed based on fear
+        float currentSpeed = length(vel);
+        float targetSpeed = mix(NORMAL_SPEED, PANIC_SPEED, smoothstep(0.0, FEAR_WEIGHT, fear.w));
+        
+        // Smoothly adjust speed toward target
+        float newSpeed = mix(currentSpeed, targetSpeed, 0.2); // 0.2 is smoothing factor
+        
+        // Update velocity
+        vel = safeNormalize(vel + acceleration, vel) * newSpeed;
     }
 
     pos += vel * TIME_STEP;
-    if (id > 1) {
+    if (id > 1){
         pos = wrapPosition(pos, bounds);
     }
 
