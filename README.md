@@ -1,6 +1,6 @@
-# TDT4230 - Graphics and Visualization
+# TDT4230 - Graphics and Visualization Final Project
 
-This is the base code for the NTNU subject TDT4230 assignments. It may also be used for the final project, which we will showcase [here](https://www.idi.ntnu.no/grupper/vis/teaching/)
+The final project will be showcased [here](https://www.idi.ntnu.no/grupper/vis/teaching/)
 
 ## What do i do?
 
@@ -15,6 +15,22 @@ Should you forget the `--recursive` bit, just run:
 
 Install Microsoft Visual Studio Express and CMake.
 You may use CMake-gui or the command-line cmake to generate a Visual Studio solution.
+
+
+### Build
+```bash
+cd TDT4230-Assignment-1
+cmake --build build
+```
+
+### Run
+
+```bash
+cd TDT4230-Assignment-1/build/Debug
+glowbox.exe
+
+```
+
 
 ### Linux:
 
