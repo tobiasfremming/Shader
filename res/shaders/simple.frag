@@ -1154,24 +1154,4 @@ void main()
     }
     fragColor = vec4(result + vec4(particles, 0.0));
 
-    
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
