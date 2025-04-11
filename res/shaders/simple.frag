@@ -88,26 +88,19 @@ float udRoundBox( vec3 p, vec3 b, float r )
     return length(max(abs(p)-b,0.0))-r;
 }
 
-
-
-
 vec3 rotationFromDirection(vec3 p, vec3 velocity) {
-    // Ensure the velocity is normalized.
-    vec3 forward = -normalize(velocity); // We invert because our fish’s nose is along -X.
+    vec3 forward = -normalize(velocity); // invert because our fish’s nose is along -X.
     
-    // Choose an arbitrary up vector. If forward is nearly parallel to up, choose a different up.
     vec3 up = vec3(0.0, 1.0, 0.0);
     if (abs(dot(forward, up)) > 0.99) {
         up = vec3(1.0, 0.0, 0.0);
     }
-    
-    // Compute the right vector.
     vec3 right = normalize(cross(up, forward));
     // Recompute up to ensure orthonormality.
     up = cross(forward, right);
     
     // Construct a rotation matrix.
-    // Here, our fish model is assumed to be modeled in local space with:
+    // Here, the fish model is assumed to be modeled in local space with:
     //   - Forward (nose) along -X, Up along Y, Right along Z.
     // We want to rotate p so that model -X aligns with the world-space 'forward'.
     // One way is to form the matrix with columns corresponding to the desired world basis.
@@ -117,19 +110,7 @@ vec3 rotationFromDirection(vec3 p, vec3 velocity) {
     return p * rot;
 }
 
-
-vec3 rotate(vec3 v, float angle, vec3 axis)
-{
-    // Make sure the axis is normalized
-    axis = normalize(axis);
-    
-    float c = cos(angle);
-    float s = sin(angle);
-    // Rodrigues’ rotation formula
-    return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
-}
-
-
+// https://iquilezles.org/articles/distfunctions/
 float sdVesicaSegment( in vec3 p, in vec3 a, in vec3 b, in float w )
 {
     vec3  c = (a+b)*0.5;
@@ -145,6 +126,7 @@ float sdVesicaSegment( in vec3 p, in vec3 a, in vec3 b, in float w )
     return length(q-h.xy) - h.z;
 }
 
+// https://iquilezles.org/articles/distfunctions/
 float udTriangle( vec3 p, vec3 a, vec3 b, vec3 c )
 {
   vec3 ba = b - a; vec3 pa = p - a;
@@ -173,7 +155,7 @@ vec3 animateFish(vec3 p) {
     float waveAmplitude = 0.1;
 
     float nose = 0.0;
-    float tail = 0.25; // or whatever is the tail's max x in your model
+    float tail = 0.25; 
 
     // Tail sway influence: 0.0 at nose, 1.0 at tail
     float factor = clamp((p.x - nose) / (tail - nose), 0.0, 1.0);
@@ -211,23 +193,9 @@ float sdFish_based(vec3 p) {
 float sdFish(vec3 p, float scale){
     float fishSDF = scale * sdFish_based(p / scale);
     float sphereSDF = length(p) - scale * 0.3;
-    // Use max to clip the fish SDF: if the fish SDF is lower than the sphere's distance,
-    // it means we're inside the fish's region; otherwise, the sphere SDF takes over.
     return max(fishSDF, sphereSDF);
 }
 
-// Not in use in current implementation, but nice for debugging
-float sdPredator(vec3 p) {
-    float scale = 2.0;
-    // Scale the coordinate so the shape expands to twice its size.
-    // For an SDF, the scaled SDF is: sd_scaled(p) = scale * sd_original(p/scale)
-    return scale * sdFish_based(p / scale);
-}
-
-// Basic domain repeat function that wraps a coordinate into a range of [-cellSize/2, cellSize/2].
-vec3 domainRepeat(vec3 p, float cellSize) {
-    return mod(p + cellSize * 0.5, cellSize) - cellSize * 0.5;
-}
 
 vec3 hash3(vec3 p) {
     p = fract(p * 0.1031);
@@ -236,53 +204,7 @@ vec3 hash3(vec3 p) {
 }
 
 
-vec3 calculateFishColor2(vec3 localP, float scale) {
-    // -------------------------------
-    // 1. Vertical Belly-to-Back Gradient
-    // -------------------------------
-    // Compute a blend factor based on the local Y coordinate.
-    // For localP.y below -0.1*scale, the fish is fully belly (silver).
-    // For localP.y above 0.05*scale, it’s fully back (blue).
-    float bellyFactor = smoothstep(-0.1 * scale, 0.05 * scale, localP.y);
-
-    // Define the colors.
-    vec3 bellyColor = vec3(0.92, 0.92, 0.96);  // Silvery-white (belly)
-    // Adjust the back color to be darker blue
-    vec3 backColor  = vec3(0.00, 0.0, 0.1);    // Dark blue (back)
-
-    // Mix the colors with bellyFactor.
-    // When bellyFactor is 0, you get bellyColor; when it's 1, you get backColor.
-    vec3 baseColor = mix(bellyColor, backColor, 0.8);
-
-    // -------------------------------
-    // 2. Stripe Pattern (Tiger Stripes on the Blue part)
-    // -------------------------------
-    // We want stripes to appear only on the blue (back) part.
-    // Thus, we define a stripe strength that activates only when bellyFactor is high.
-    float stripeStrength = smoothstep(0.1, 0.5, bellyFactor);
-    
-    // Compute a stripe pattern based on the horizontal axis.  
-    // The high frequency creates many stripes.
-    float stripeFreq = 200.0;
-    float stripePattern = sin(localP.x * stripeFreq + localP.z * 1.0);
-    
-    // Map the absolute stripe pattern to a sharp mask.
-    // Using smoothstep with an inverted range gives sharp transitions.
-    float stripeMask = smoothstep(0.2, 0.15, abs(stripePattern));
-    
-    // The stripe color is black.
-    vec3 stripeColor = vec3(0.0);
-
-    // Mix the base color with black using the stripe mask * strength.
-    // In areas where stripeStrength is 0 (belly), the stripes are not applied.
-    baseColor = mix(baseColor, stripeColor, stripeMask * stripeStrength);
-    
-
-    // Return the color clamped to valid RGB range
-    return clamp(baseColor, 0.0, 1.0);
-}
-
-
+// based on https://iquilezles.org/articles/sdfrepetition/, but my own logic for jitter and stuff
 // Limited Domain Repetition in 3D
 // p   : the point in space to evaluate
 // s   : repetition period (cell size)
@@ -344,11 +266,9 @@ vec3 calculateDolphinColor(vec3 localP, float spineRatio) {
     vec3 back  = vec3(0.1, 0.1, 0.15);     // dark steel blue
     vec3 bodyColor = mix(belly, back, bellyBlend);
 
-    // Optional: dorsal stripe?
     float dorsalStripe = smoothstep(0.0, 0.02, abs(localP.z));
     bodyColor = mix(bodyColor, bodyColor * 0.7, dorsalStripe);
 
-    // Optional: darken tail slightly
     float tailDarken = smoothstep(0.6, 1.0, spineRatio);
     bodyColor *= mix(1.0, 0.75, tailDarken);
 
@@ -363,7 +283,7 @@ float sdEllipsoid( in vec3 p, in vec3 r )
     return k0*(k0-1.0)/k1;
 }
 
-// https://iquilezles.org/articles/distfunctions/
+https://www.shadertoy.com/view/4sS3zG
 vec2 sd2Segment(vec3 start, vec3 end, vec3 point) {
     vec3 startToPoint = point - start;
     vec3 segmentVector = end - start;
@@ -376,6 +296,7 @@ vec2 sd2Segment(vec3 start, vec3 end, vec3 point) {
     return vec2(dot(diff, diff), t);
 }
 
+// https://www.shadertoy.com/view/4sS3zG
 vec2 anima( float ih, float t )
 {
     float an1 = 0.9*(0.5+0.2*ih)*cos(5.0*ih - 3.0*t + 6.2831/4.0);
@@ -385,6 +306,7 @@ vec2 anima( float ih, float t )
 	return vec2( an, ro );
 }
 
+// https://www.shadertoy.com/view/4sS3zG
 vec3 anima2( void )
 {
     vec3 a1 = vec3(0.0,        sin(3.0*fishTime+6.2831/4.0),0.0);
@@ -395,18 +317,7 @@ vec3 anima2( void )
     return a;
 }
 
-// Helper: build a rotation matrix that rotates around 'axis' by 'angle'
-mat3 rotationMatrix(vec3 axis, float angle) {
-    float s = sin(angle);
-    float c = cos(angle);
-    float oc = 1.0 - c;
-    return mat3(
-        oc*axis.x*axis.x + c,         oc*axis.x*axis.y - axis.z*s,  oc*axis.z*axis.x + axis.y*s,
-        oc*axis.x*axis.y + axis.z*s,    oc*axis.y*axis.y + c,         oc*axis.y*axis.z - axis.x*s,
-        oc*axis.z*axis.x - axis.y*s,    oc*axis.y*axis.z + axis.x*s,  oc*axis.z*axis.z + c
-    );
-}
-
+// Based on https://www.shadertoy.com/view/4sS3zG, but changed logic for kinematics and deforming
 vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
     
     float lagFactor = 0.4;
@@ -476,7 +387,7 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
     
     res.x = 0.75 * (distance(p, midpoint) - ra);
     
-    // Improved fin/tail calculations with stability checks
+    // fin/tail calculations with stability checks
     if(length(d3) > 0.0) {
         // Blend the fin direction with the overall movement direction
         //vec3 finDir = normalize(mix(blendedDir, normalize(d3), lagFactor));
@@ -548,6 +459,10 @@ vec2 sdDolphinKinematic(vec3 p, vec3 vel, vec3 prevVel) {
     return res;
 }
 
+//              NOT CURRENTLY IN USE
+//                        |
+//                       \|/
+//                        V
 // Improved kinematics, but cant figure out the fin placement
 vec2 sdDolphinKinematicNEWAPPROACH(vec3 p, vec3 vel, vec3 prevVel) {
     // Direction blending (unchanged)
@@ -680,296 +595,6 @@ vec2 sdDolphinKinematicNEWAPPROACH(vec3 p, vec3 vel, vec3 prevVel) {
     return res;
 }
 
-vec2 sdDolphinKinematic1(vec3 p, vec3 vel, vec3 prevVel) {
-    // Improved direction blending with smoother transitions
-    float lagFactor = 0.4;
-    vec3 dirPrev = length(prevVel) > 0.0 ? -normalize(prevVel) : vec3(0.0, 0.0, -1.0);
-    vec3 dirCurr = length(vel) > 0.0 ? -normalize(vel) : vec3(0.0, 0.0, -1.0);
-    
-    // Use smootherstep for blending to avoid sharp transitions
-    float blendFactor = smoothstep(0.0, 0.5, dot(dirPrev, dirCurr));
-    vec3 blendedDir = normalize(mix(dirPrev, dirCurr, mix(lagFactor, 1.0, 1.0-blendFactor)));
-    
-    vec2 res = vec2(1000.0, 0.0);
-    vec3 segmentStart = anima2();
-    
-    vec3 p1 = segmentStart, p2 = segmentStart, p3 = segmentStart;
-    vec3 d1 = vec3(0.0), d2 = vec3(0.0), d3 = vec3(0.0);
-    vec3 midpoint = segmentStart;
-    
-    for(int i = 0; i < NUMI; i++) {
-        float ih = float(i) / NUMF;
-        vec2 anim = anima(ih, fishTime);
-        float ll = (i == 0) ? 0.655 : 0.48;
-        
-        // Create animation offset with fallback for zero velocity
-        vec3 animOffset = length(vel) > 0.0 ? 
-            normalize(vec3(sin(anim.y), sin(anim.x), cos(anim.x))) :
-            vec3(0.0, 0.1, 1.0);
-        
-        // Blend directions with ensured validity
-        vec3 segmentDir = normalize(mix(blendedDir, animOffset, min(lagFactor * 1.5, 0.9)));
-        
-        // Ensure segment direction is valid
-        if (any(isnan(segmentDir))){ segmentDir = vec3(0.0, 0.0, 1.0);}
-        
-        vec3 segmentEnd = segmentStart + ll * segmentDir;
-        
-        vec2 dis = sd2Segment(segmentStart, segmentEnd, p);
-        
-        if(dis.x < res.x) {
-            res = vec2(dis.x, ih + dis.y / NUMF);
-            midpoint = mix(segmentStart, segmentEnd, dis.y);
-            ccd = segmentEnd - segmentStart;
-            
-            lastDolphinLocalPCandidate = p;
-            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF;
-        }
-        
-        // Store reference points for fins/tail
-        if(i == 3) { p1 = segmentStart; d1 = segmentEnd - segmentStart; }
-        if(i == 4) { p3 = segmentStart; d3 = segmentEnd - segmentStart; }
-        if(i == (NUMI - 1)) { p2 = segmentEnd; d2 = segmentEnd - segmentStart; }
-        
-        segmentStart = segmentEnd;
-    }
-    ccp = midpoint;
-    
-    // Body SDF (unchanged but more robust)
-    float h = res.y;
-    float ra = 0.05 + h * (1.0 - h) * (1.0 - h) * 2.7;
-    ra += 7.0 * max(0.0, h - 0.04) * exp(-30.0 * max(0.0, h - 0.04)) * smoothstep(-0.1, 0.1, p.y - midpoint.y);
-    ra -= 0.03 * (smoothstep(0.0, 0.1, abs(p.y - midpoint.y))) * (1.0 - smoothstep(0.0, 0.1, h));
-    ra += 0.05 * clamp(1.0 - 3.0 * h, 0.0, 1.0);
-    ra += 0.035 * (1.0 - smoothstep(0.0, 0.025, abs(h - 0.1))) * (1.0 - smoothstep(0.0, 0.1, abs(p.y - midpoint.y)));
-    
-    res.x = 0.75 * (distance(p, midpoint) - ra);
-    
-    // Improved fin/tail calculations with stability checks
-    if(length(d3) > 0.0) {
-        vec3 finDir = normalize(d3);
-        vec3 upRef = abs(dot(finDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-        vec3 right = normalize(cross(upRef, finDir));
-        vec3 newUp = cross(finDir, right);
-        mat3 finRot = mat3(right, newUp, finDir);
-        
-        vec3 ps = finRot * (p - p3);
-        ps.z -= 0.4;
-        float d5 = length(ps.yz) - 0.9;
-        d5 = max(d5, -(length(ps.yz - vec2(0.6, 0.0)) - 0.35));
-        d5 = max(d5, udRoundBox(ps + vec3(0.0, -0.5, 0.5), vec3(0.0, 0.5, 0.5), 0.02));
-        res.x = smoothMin(res.x, d5, 0.1);
-    }
-    
-    if(length(d1) > 0.0) {
-        vec3 finDir2 = normalize(d1);
-        vec3 upRefFin2 = abs(dot(finDir2, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-        vec3 rightFin2 = normalize(cross(upRefFin2, finDir2));
-        vec3 newUpFin2 = cross(finDir2, rightFin2);
-        mat3 finRot2 = mat3(rightFin2, newUpFin2, finDir2);
-        
-        vec3 finLocal2 = finRot2 * (p - p1);
-        finLocal2.x = abs(finLocal2.x);
-        float lVal = smoothstep(0.4, 0.9, finLocal2.x);
-        lVal *= 1.0 - clamp(5.0 * abs(finLocal2.z + 0.2), 0.0, 1.0);
-        
-        finLocal2 += vec3(-0.2, 0.36, -0.2);
-        float dFin2 = length(finLocal2.xz) - 0.8;
-        dFin2 = max(dFin2, -(length(finLocal2.xz - vec2(0.2, 0.4)) - 0.8));
-        dFin2 = max(dFin2, udRoundBox(finLocal2, vec3(1.0, 0.0, 1.0), 0.015 + 0.05 * lVal));
-        res.x = smoothMin(res.x, dFin2, 0.12);
-    }
-    
-    if(length(d2) > 0.0) {
-        vec3 tailDir = normalize(d2);
-        vec3 upRef = abs(dot(tailDir, vec3(0.0, 1.0, 0.0))) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-        vec3 right = normalize(cross(upRef, tailDir));
-        vec3 newUp = cross(tailDir, right);
-        mat3 tailRot = mat3(right, newUp, tailDir);
-        
-        vec3 tailLocal = tailRot * (p - p2 - tailDir * 0.25);
-        float dTail = length(tailLocal.xz) - 0.6;
-        dTail = max(dTail, -(length(tailLocal.xz - vec2(0.0, 0.8)) - 0.9));
-        dTail = max(dTail, udRoundBox(tailLocal, vec3(1.0, 0.005, 1.0), 0.005));
-        res.x = smoothMin(res.x, dTail, 0.1);
-    }
-    
-    return res;
-}
-
-vec2 sdDolphinKinematic2(vec3 p, vec3 vel, vec3 prevVel){
-    float lagFactor = 0.4; // adjust this to increase or decrease the lag
-    vec3 dirPrev = -normalize(prevVel);
-    vec3 dirCurr = -normalize(vel);
-    vec3 blendedDir = normalize(mix(dirPrev, dirCurr, lagFactor));
-    if (dot(dirPrev, dirCurr) < 0.01){
-        blendedDir = dirCurr;
-    }
-    
-    vec2 res = vec2( 1000.0, 0.0 );
-
-	vec3 segmentStart = anima2();
-	
-	float or = 0.0;
-	float th = 0.0;
-	float hm = 0.0;
-
-	vec3 p1 = segmentStart; vec3 d1=vec3(0.0);
-	vec3 p2 = segmentStart; vec3 d2=vec3(0.0);
-	vec3 p3 = segmentStart; vec3 d3=vec3(0.0);
-	vec3 midpoint = segmentStart;
-	for( int i=0; i<NUMI; i++ )
-	{	
-		float ih = float(i)/NUMF;
-		vec2 anim = anima( ih, fishTime );
-		float ll = 0.48; 
-        if( i==0 ) ll=0.655;
-        
-        // Use the animation to create an oscillation offset.
-        vec3 animOffset = normalize(vec3(sin(anim.y), sin(anim.x), cos(anim.x)));
-
-        // Now blend the animation offset with the lagged base direction.
-        vec3 laggedSegmentDir = normalize(mix(blendedDir, animOffset, lagFactor));
-
-        // Compute the segment endpoint.
-        vec3 segmentEnd = segmentStart + ll * laggedSegmentDir;
-
-		
-		vec2 dis = sd2Segment( segmentStart, segmentEnd, p );
-
-		if( dis.x<res.x ) {
-            res=vec2(dis.x,ih+dis.y/NUMF); 
-            midpoint=segmentStart+(segmentEnd-segmentStart)*dis.y; 
-            ccd = segmentEnd-segmentStart;
-
-            lastDolphinLocalPCandidate = p; // already local!
-            lastDolphinSegmentRatioCandidate = ih + dis.y / NUMF; // for vertical / longitudinal blend
-        }
-		
-		if( i==3 ) { 
-            p1 = segmentStart; 
-            d1 = segmentEnd-segmentStart;
-        }
-		if( i==4 ) { 
-            p3=segmentStart; 
-            d3 = segmentEnd-segmentStart; 
-        }
-        
-		if( i==(NUMI-1) ) { 
-            p2 = segmentEnd; 
-            d2 = segmentEnd-segmentStart; 
-        }
-
-		segmentStart = segmentEnd;
-	}
-	ccp = midpoint;
-	
-	float h = res.y;
-	float ra = 0.05 + h*(1.0-h)*(1.0-h)*2.7;
-	ra += 7.0*max(0.0,h-0.04)*exp(-30.0*max(0.0,h-0.04)) * smoothstep(-0.1, 0.1, p.y-midpoint.y);
-	ra -= 0.03*(smoothstep(0.0, 0.1, abs(p.y-midpoint.y)))*(1.0-smoothstep(0.0,0.1,h));
-	ra += 0.05*clamp(1.0-3.0*h,0.0,1.0);
-    ra += 0.035*(1.0-smoothstep( 0.0, 0.025, abs(h-0.1) ))* (1.0-smoothstep(0.0, 0.1, abs(p.y-midpoint.y)));
-	
-	// body
-	res.x = 0.75 * (distance(p,midpoint) - ra);
-
-    // fin	
-    
-    vec3 d1_current = normalize(d1);
-    vec3 d2_current = normalize(d2);
-    vec3 d3_current = normalize(d3);
-
-    vec3 laggedD1 = normalize(mix(blendedDir, d1_current, lagFactor));
-    vec3 laggedD2 = normalize(mix(blendedDir, d2_current, 1.));
-    vec3 laggedD3 = normalize(mix(blendedDir, d3_current, lagFactor));
-    
-	float k = sqrt(1.0 - laggedD3.y*laggedD3.y);
-	mat3 ms = mat3(  laggedD3.z/k, -laggedD3.x*laggedD3.y/k, laggedD3.x,
-				        0.0,            k, laggedD3.y,
-				    -laggedD3.x/k, -laggedD3.y*laggedD3.z/k, laggedD3.z );
-    
-	vec3 ps = p - p3;
-	ps = ms*ps;
-	ps.z -= 0.4;
-    float d5 = length(ps.yz) - 0.9;
-	d5 = max( d5, -(length(ps.yz-vec2(0.6,0.0)) - 0.35) );
-	d5 = max( d5, udRoundBox( ps+vec3(0.0,-0.5,0.5), vec3(0.0,0.5,0.5), 0.02 ) );
-	res.x = smoothMin( res.x, d5, 0.1 );
-	
-    // fin	
-    vec3 finDir2 = normalize(laggedD1);
-
-    // Choose an up reference and adjust if necessary.
-    vec3 upRefFin2 = vec3(0.0, 1.0, 0.0);
-    if (abs(dot(finDir2, upRefFin2)) > 0.99) {
-        upRefFin2 = vec3(1.0, 0.0, 0.0);
-    }
-
-    // Compute the right vector and corrected up vector.
-    vec3 rightFin2 = normalize(cross(upRefFin2, finDir2));
-    vec3 newUpFin2 = cross(finDir2, rightFin2);
-
-    // Build the 3×3 rotation matrix.
-    mat3 finRot2 = mat3(rightFin2, newUpFin2, finDir2);
-
-    // Transform the point into fin local space.
-    vec3 finLocal2 = transpose(finRot2) * (p - p1);
-
-    // In this fin’s SDF your original code takes abs of the x-component:
-    finLocal2.x = abs(finLocal2.x);
-
-    // Now compute a factor for additional shape adjustments.
-    float lVal = finLocal2.x;
-    lVal = clamp((lVal - 0.4) / 0.5, 0.0, 1.0);
-    lVal = 4.0 * lVal * (1.0 - lVal);
-    lVal *= 1.0 - clamp(5.0 * abs(finLocal2.z + 0.2), 0.0, 1.0);
-
-    // Apply an offset if desired.
-    finLocal2 += vec3(-0.2, 0.36, -0.2);
-
-    // Compute the SDF for this fin.
-    float dFin2 = length(finLocal2.xz) - 0.8;
-    dFin2 = max(dFin2, -(length(finLocal2.xz - vec2(0.2, 0.4)) - 0.8));
-    dFin2 = max(dFin2, udRoundBox(finLocal2, vec3(1.0, 0.0, 1.0), 0.015 + 0.05 * lVal));
-    res.x = smoothMin(res.x, dFin2, 0.12);
-
-	
-    // Tail transformation using a full 3x3 rotation matrix
-
-    // Compute the instantaneous tail direction d2 and blend if needed (already done):
-   
-    // (Assume laggedD2 is computed as you want; here we reuse it)
-    vec3 tailDir = normalize(laggedD2);
-
-    // Choose an up reference, avoiding near-parallel cases.
-    vec3 upRef = vec3(0.0, 1.0, 0.0);
-    if (abs(dot(tailDir, upRef)) > 0.99) {
-        upRef = vec3(1.0, 0.0, 0.0);
-    }
-
-    // Compute right and newUp to build the tail coordinate system.
-    vec3 right = normalize(cross(upRef, tailDir));
-    vec3 newUp = cross(tailDir, right);
-
-    // Construct the rotation matrix.
-    mat3 tailRot = mat3(right, newUp, tailDir);
-
-    // Transform the point into tail local space.
-    // Here, tailDir * 0.25 is an offset along the tail direction; adjust as needed.
-    vec3 tailLocal = transpose(tailRot) * (p - p2 - tailDir * 0.25);
-
-    // Now compute the SDF in tail-local space. For instance, using tailLocal.xz:
-    float dTail = length(tailLocal.xz) - 0.6;
-    dTail = max(dTail, -(length(tailLocal.xz - vec2(0.0, 0.8)) - 0.9));
-    dTail = max(dTail, udRoundBox(tailLocal, vec3(1.0, 0.005, 1.0), 0.005));
-    res.x = smoothMin(res.x, dTail, 0.1);
-	
-	return res;
-
-
-}
-
 
 vec2 fishBound(vec3 p) {
     float d = 1e10;
@@ -981,7 +606,6 @@ vec2 fishBound(vec3 p) {
     vec3 pos = boids[0].position;
     // Compute SDF for a sphere centered at pos.
     float sphereSDF = length(p - pos) - boundingRadius;
-    //if (sphereSDF > 0.0) { continue;}
 
     if (sphereSDF < 0.01) {
         // p is inside the sphere, so we now do the more expensive evaluation.
@@ -989,10 +613,8 @@ vec2 fishBound(vec3 p) {
         vec3 prevVel = boids[1].velocity;
         vec3 localP = p - pos;  // translate into boid's space
         float dolphin_scale = 0.3;
-        //float fishSDF = dolphin_scale * sdDolphin(localP/dolphin_scale).x;
         
         float fishSDF = dolphin_scale * sdDolphinKinematic(localP/dolphin_scale, vel,  prevVel).x;
-        //float fishSDF = sdKinematicTube(p, vel, prevVel);
         
         if (fishSDF < d) {
             d = fishSDF;
@@ -1005,7 +627,7 @@ vec2 fishBound(vec3 p) {
     } 
 
     boundingRadius = 0.5;
-    for (int i = 2; i < NUM_BOIDS; i++) { // start from 2?
+    for (int i = 2; i < NUM_BOIDS; i++) {  // start from 2 to skip the dolphin
         currentIndex = i;
         vec3 pos = boids[i].position;
         float sphereSDF = length(p - pos) - boundingRadius;
@@ -1016,9 +638,7 @@ vec2 fishBound(vec3 p) {
             rotationFromDirection(localP, vel);
             
             float fishSDF = limitedDomainRepeatSDF(localP, 0.5, vec3(1.4), vel);
-            //float fishSDF = sdFish(localP, 0.5);
      
-            //d = min(d, fishSDF);
             if (fishSDF < d) {
                 d = fishSDF;
                 renderIndex = 2.0;
@@ -1028,7 +648,6 @@ vec2 fishBound(vec3 p) {
             }
             
         } else {
-            // Optionally, you can still use the sphere distance as a lower bound.
             d = min(d, sphereSDF);
         }
     }
@@ -1036,15 +655,12 @@ vec2 fishBound(vec3 p) {
     return vec2(d, renderIndex);
 }
 
-float oceanFloor(vec3 p) {
-    return p.y + 1.0; // flat horizontal plane at y = -1.0
-}
+
+// NOISE =====================================================================================
 
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
-
-
 
 float noise(vec2 p) {
     vec2 i = floor(p);
@@ -1076,14 +692,12 @@ float fbm(vec2 p) {
 }
 
 
-
 float warpedFbm(vec2 p) {
     vec2 q = vec2(fbm(p + vec2(1.7, 9.2)),
                   fbm(p + vec2(8.3, 2.8)));
 
     return fbm(p + 2.0 * q);
 }
-
 
 
 vec2 terrain(vec3 p) {
