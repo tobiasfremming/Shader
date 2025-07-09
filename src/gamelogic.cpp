@@ -166,7 +166,7 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
     glfwSetCursorPosCallback(window, mouseCallback);
 
     shader = new Gloom::Shader();
-    shader->makeBasicShader("../../res/shaders/simple.vert", "../../res/shaders/simple.frag");
+    shader->makeBasicShader("../../res/shaders/simple.vert", "../../res/shaders/ocean.frag");
     shader->activate();
     GLuint shaderProgram = shader->get();
     u_time       = glGetUniformLocation(shaderProgram, "iTime");
@@ -216,34 +216,6 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
     glGenBuffers(1, &ssboVelocity);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVelocity);
     glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(glm::vec3) * NUM_BOIDS, nullptr, GL_DYNAMIC_DRAW);
-
-
-
-    // GLuint ssbo;
-    // glGenBuffers(1, &ssbo);
-    // glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-    // glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_BOIDS * sizeof(Boid), boids.data(), GL_DYNAMIC_DRAW);
-    // glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
-
-
-
-    // shader_compute = new Gloom::Shader();
-
-    
-    
-    
-    // glGenFramebuffers(1, &framebuffer);
-    // glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-
-    
-    // glGenTextures(1, &textureColorBuffer);  
-    // glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
-    // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, NUM_BOIDS, 2, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);   
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorBuffer, 0);
-
-
 
 
     unsigned int emptyVAO;
@@ -381,56 +353,6 @@ void updateFrame(GLFWwindow* window) {
 }
 
 
-
-// void renderFrame(GLFWwindow* window) {
-//     int windowWidth, windowHeight;
-//     glfwGetWindowSize(window, &windowWidth, &windowHeight);
-//     glViewport(0, 0, windowWidth, windowHeight);
-
-//     glm::vec2 resolution(windowWidth, windowHeight);
-
-//     // glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-//     // shader_compute->activate();
-//     // //glUseProgram(shader_compute->get());
-
-//     // glDrawArrays(GL_POINTS, 0, NUM_BOIDS); // TODO: what should be the arguments here
-    
-//     // glBindBuffer(GL_FRAMEBUFFER, 0);
-//     // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
- 
-
-    
-//     glUseProgram(computeProgram);
-//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo); // Rebind just in case
-//     glDispatchCompute(NUM_BOIDS, 1, 1);
-//     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-
-    
-
-
-
-
-//     shader->activate();
-
-//     glActiveTexture(GL_TEXTURE0);
-//     glBindTexture(GL_TEXTURE_2D, textureColorBuffer);
-
-//     glUseProgram(shader->get()); // Make sure shader is active
-//     //glUniform2fv(u_resolution, 1, glm::value_ptr(resolution));
-//     //glUniform1i(u_texture, 0); // Set the texture unit to 0
-
-//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPosition); // positions
-//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVelocity); // velocities
-
-
-//     renderNode(rootNode);
-
-//     // Make the screen into two polygons forming a rectangle and draw it!
-//     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-
-// }
 
 void renderFrame(GLFWwindow* window) {
     int windowWidth, windowHeight;

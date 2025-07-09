@@ -1,20 +1,14 @@
-# TDT4230 - Graphics and Visualization Final Project
+# Hackerspace Shader Art OpenGL teplate
 
 ![Animation Example](dolphin.gif)
 
-The final project will be showcased [here](https://www.idi.ntnu.no/grupper/vis/teaching/)
+
 
 ## What do i do?
-Clone original repo:
-	git clone --recursive https://github.com/bartvbl/TDT4230-Assignment-1.git
-
-Should you forget the `--recursive` bit, just run:
-
-	git submodule update --init
-
-Clone this repo:
-	git clone https://github.com/tobiasfremming/DolphinRayMarch.git
-
+Clone the repo
+go the the res/shaders folder and create a new shader
+change the current shader in use in gamelogic.cpp
+Have fun
 ### Windows
 
 Install Microsoft Visual Studio Express and CMake.
@@ -23,14 +17,14 @@ You may use CMake-gui or the command-line cmake to generate a Visual Studio solu
 
 ### Build
 ```bash
-cd TDT4230-Assignment-1
+cd shaderopengl
 cmake --build build
 ```
 
 ### Run
 
 ```bash
-cd TDT4230-Assignment-1/build/Debug
+cd shaderopengl/build/Debug
 glowbox.exe
 
 ```
